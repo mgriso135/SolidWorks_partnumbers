@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from app.db import SessionLocal
-from app.models import Rule
-from app.schemas import GenerateRequest
+from app.models import Item, Rule, User
+from app.schemas import GenerateRequest, RuleUpdate
 from app.services import generator
+from app.services import rules as rule_service
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -581,3 +583,198 @@ def test_concurrent_generation_is_unique(
     assert len(codes) == 8
     assert len(set(codes)) == 8
     assert all(code.startswith("T") and "-MEC-" in code for code in codes)
+
+
+def test_counter_collision_retries_with_next_value(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    token = uuid.uuid4().hex[:6].upper()
+    literal = f"C{token}"
+    definition = {
+        "segments": [
+            {"type": "literal", "value": literal},
+            {"type": "separator", "value": "-"},
+            {
+                "type": "counter",
+                "key": "seq",
+                "padding": 3,
+                "start": 1,
+                "scope": "rule",
+            },
+        ],
+        "max_length": 32,
+        "case": "upper",
+    }
+    rule = make_rule(client, editor_headers, definition=definition)
+
+    first = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {}},
+        headers=editor_headers,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["code"] == f"{literal}-001"
+
+    with SessionLocal() as db:
+        rule_row = db.scalar(select(Rule).where(Rule.id == rule["id"]))
+        assert rule_row is not None
+        db.add(
+            Item(
+                tenant_id=rule["tenant_id"],
+                code=f"{literal}-002",
+                rule_id=rule_row.id,
+                rule_key=rule["key"],
+                rule_version=rule["version"],
+                status="reserved",
+                source="test",
+                payload={},
+            )
+        )
+        db.commit()
+
+    retried = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {}},
+        headers=editor_headers,
+    )
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["code"] == f"{literal}-003"
+
+
+def test_generation_rejects_empty_code(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    definition = {
+        "segments": [
+            {
+                "type": "list",
+                "key": "family",
+                "required": False,
+                "options": [{"value": "MEC"}],
+            }
+        ]
+    }
+    rule = make_rule(client, editor_headers, definition=definition)
+
+    preview = client.post(
+        "/api/generate/preview",
+        json={"rule_key": rule["key"], "values": {}},
+        headers=editor_headers,
+    )
+    assert preview.status_code == 422
+    assert preview.json()["detail"]["code"] == "EMPTY_CODE"
+
+    committed = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {}},
+        headers=editor_headers,
+    )
+    assert committed.status_code == 422
+    assert committed.json()["detail"]["code"] == "EMPTY_CODE"
+
+
+def test_rules_status_query_parameter(client: TestClient, editor_headers: dict[str, str]) -> None:
+    active = make_rule(client, editor_headers)
+    draft = make_rule(client, editor_headers, status="draft")
+
+    response = client.get(
+        "/api/rules",
+        params={"status": "active"},
+        headers=editor_headers,
+    )
+    assert response.status_code == 200
+    keys = {item["key"] for item in response.json()}
+    assert active["key"] in keys
+    assert draft["key"] not in keys
+
+    alias = client.get(
+        "/api/rules",
+        params={"status_filter": "active"},
+        headers=editor_headers,
+    )
+    assert alias.status_code == 200
+    assert {item["key"] for item in alias.json()} == keys
+
+
+def test_text_segment_accepts_min_max_aliases(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    definition = {
+        "segments": [
+            {"type": "literal", "value": "TX"},
+            {"type": "separator", "value": "-"},
+            {
+                "type": "text",
+                "key": "serial",
+                "min": 3,
+                "max": 5,
+                "regex": "^[0-9]+$",
+            },
+        ]
+    }
+    rule = make_rule(client, editor_headers, definition=definition)
+
+    text_segment = rule["definition"]["segments"][2]
+    assert text_segment["min_length"] == 3
+    assert text_segment["max_length"] == 5
+
+    good = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"serial": "123"}},
+        headers=editor_headers,
+    )
+    assert good.status_code == 200, good.text
+
+    bad = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"serial": "12"}},
+        headers=editor_headers,
+    )
+    assert bad.status_code == 422
+    assert "serial" in bad.json()["detail"]["fields"]
+
+
+def test_concurrent_rule_updates_create_distinct_versions(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    barrier = threading.Barrier(2)
+
+    def worker(literal: str) -> int:
+        with SessionLocal() as db:
+            current = db.scalar(select(Rule).where(Rule.id == rule["id"]))
+            author = db.scalar(select(User).where(User.id == rule["created_by"]))
+            assert current is not None and author is not None
+            payload = RuleUpdate(
+                name=rule["name"],
+                description=f"updated by {literal}",
+                document_type="part",
+                status="active",
+                definition={
+                    "segments": [
+                        {"type": "literal", "value": literal},
+                        {"type": "separator", "value": "-"},
+                        {"type": "counter", "key": "seq", "padding": 3, "scope": "rule"},
+                    ]
+                },
+            )
+            barrier.wait()
+            update = rule_service.update_rule(
+                db,
+                tenant_id=rule["tenant_id"],
+                rule=current,
+                payload=payload,
+                author=author,
+            )
+            return update.version
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        versions = list(pool.map(worker, ["UPA", "UPB"]))
+
+    assert sorted(versions) == [2, 3]
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(Rule).where(Rule.key == rule["key"]).order_by(Rule.version)
+        ).all()
+        assert [row.version for row in rows] == [1, 2, 3]
+        assert [row.status for row in rows] == ["archived", "archived", "active"]

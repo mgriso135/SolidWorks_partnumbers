@@ -62,6 +62,17 @@ def test_rule_definition_accepts_valid_counter_scopes() -> None:
             ],
             "Invalid regex",
         ),
+        (
+            [
+                {
+                    "type": "text",
+                    "key": "serial",
+                    "min_length": 5,
+                    "max_length": 3,
+                }
+            ],
+            "min_length cannot exceed max_length",
+        ),
     ],
 )
 def test_rule_definition_rejects_invalid_constraints(segments: list[dict], message: str) -> None:

@@ -21,6 +21,12 @@ def build_erp_adapter(config: Settings | None = None) -> ErpAdapter:
             raise ErpConfigurationError("ERP_BASE_URL is required for the REST adapter")
         if "{code}" not in config.erp_lookup_path:
             raise ErpConfigurationError("ERP_LOOKUP_PATH must contain the {code} placeholder")
+        try:
+            config.erp_lookup_path.format(code="CODE")
+        except (IndexError, KeyError, ValueError) as exc:
+            raise ErpConfigurationError(
+                "ERP_LOOKUP_PATH may only use the {code} placeholder"
+            ) from exc
         return RestErpAdapter(
             base_url=config.erp_base_url,
             api_key=config.erp_api_key,

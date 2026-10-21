@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ _EDITOR = require_roles("admin", "editor")
 @router.get("", response_model=list[RuleOut])
 def list_rules(
     status_filter: str | None = None,
+    status_query: str | None = Query(default=None, alias="status"),
     document_type: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("admin", "editor", "viewer")),
@@ -26,7 +27,7 @@ def list_rules(
     items = rule_service.list_latest_rules(
         db,
         user.tenant_id,
-        status_filter=status_filter,
+        status_filter=status_filter or status_query,
         document_type=document_type,
     )
     return [RuleOut.model_validate(rule) for rule in items]

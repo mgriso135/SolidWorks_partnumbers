@@ -191,7 +191,14 @@ def _render(
         parts.append(raw)
         segments.append({"type": segment.type, "key": key, "value": raw})
 
-    return Rendered(code="".join(parts), segments=segments)
+    code = "".join(parts)
+    if not code.strip():
+        raise GenerationError(
+            "EMPTY_CODE",
+            "The rule produced an empty code",
+            fields={"code": ""},
+        )
+    return Rendered(code=code, segments=segments)
 
 
 def preview_code(db: Session, *, tenant_id: str, rule: Rule, request: GenerateRequest) -> Rendered:
@@ -306,7 +313,21 @@ def commit_code(
                 notes=request.notes,
                 created_by=created_by,
             )
-            db.add(item)
+            try:
+                # Keep the counter reservation when the item insert collides, so
+                # the next attempt reserves the following counter value.
+                with db.begin_nested():
+                    db.add(item)
+                    db.flush()
+            except IntegrityError as exc:
+                last_error = exc
+                if external_ref:
+                    ensure_external_ref_available(
+                        db,
+                        tenant_id=tenant_id,
+                        external_ref=external_ref,
+                    )
+                continue
             db.commit()
             db.refresh(item)
             return item, rendered.segments

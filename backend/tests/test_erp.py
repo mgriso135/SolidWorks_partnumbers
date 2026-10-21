@@ -14,6 +14,7 @@ from app.services.erp import (
     ErpItem,
     FileErpAdapter,
     RestErpAdapter,
+    StubErpAdapter,
     build_erp_adapter,
 )
 from fastapi.testclient import TestClient
@@ -238,3 +239,19 @@ def test_erp_reconcile_reports_adapter_errors(
     assert body["errors"] == 1
     assert body["results"][0]["action"] == "error"
     assert "ERP unavailable" in body["results"][0]["error"]
+
+
+def test_stub_adapter_propose_item_raises_adapter_error() -> None:
+    with pytest.raises(ErpAdapterError, match="read-only"):
+        StubErpAdapter().propose_item({})
+
+
+def test_rest_adapter_rejects_extra_lookup_placeholders() -> None:
+    config = replace(
+        settings,
+        erp_adapter="rest",
+        erp_base_url="https://erp.example",
+        erp_lookup_path="/items/{code}/{id}",
+    )
+    with pytest.raises(ErpConfigurationError, match="only use"):
+        build_erp_adapter(config)

@@ -4,7 +4,14 @@ import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class SegmentBase(BaseModel):
@@ -44,8 +51,18 @@ class TextSegment(SegmentBase):
     key: str = Field(min_length=1, max_length=40)
     label: str | None = None
     required: bool = True
-    min_length: int = Field(default=0, ge=0, le=64)
-    max_length: int = Field(default=32, ge=1, le=64)
+    min_length: int = Field(
+        default=0,
+        ge=0,
+        le=64,
+        validation_alias=AliasChoices("min_length", "min"),
+    )
+    max_length: int = Field(
+        default=32,
+        ge=1,
+        le=64,
+        validation_alias=AliasChoices("max_length", "max"),
+    )
     regex: str | None = None
 
 
@@ -99,11 +116,18 @@ class RuleDefinition(BaseModel):
                 if segment.key in seen_value_keys:
                     raise ValueError(f"Duplicate segment key '{segment.key}'")
                 seen_value_keys.add(segment.key)
-            if isinstance(segment, TextSegment) and segment.regex:
-                try:
-                    re.compile(segment.regex)
-                except re.error as exc:
-                    raise ValueError(f"Invalid regex for segment '{segment.key}': {exc}") from exc
+            if isinstance(segment, TextSegment):
+                if segment.min_length > segment.max_length:
+                    raise ValueError(
+                        f"Segment '{segment.key}' min_length cannot exceed max_length"
+                    )
+                if segment.regex:
+                    try:
+                        re.compile(segment.regex)
+                    except re.error as exc:
+                        raise ValueError(
+                            f"Invalid regex for segment '{segment.key}': {exc}"
+                        ) from exc
             if isinstance(segment, CounterSegment):
                 if segment.key in seen_counter_keys:
                     raise ValueError(f"Duplicate counter key '{segment.key}'")

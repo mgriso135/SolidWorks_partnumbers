@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .base import ErpAdapter, ErpError, ErpItem
+from .base import ErpAdapter, ErpAdapterError, ErpItem
 
 
 class StubErpAdapter(ErpAdapter):
@@ -17,4 +17,4 @@ class StubErpAdapter(ErpAdapter):
         return self._items.get(code.strip().upper())
 
     def propose_item(self, payload: dict[str, object]) -> dict[str, object]:
-        raise ErpError("The stub ERP adapter is read-only")
+        raise ErpAdapterError("The stub ERP adapter is read-only")

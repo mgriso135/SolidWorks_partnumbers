@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Rule, User
@@ -116,32 +117,44 @@ def create_rule(db: Session, tenant_id: str, author: User, payload: RuleCreate) 
 
 
 def update_rule(db: Session, tenant_id: str, rule: Rule, payload: RuleUpdate, author: User) -> Rule:
-    latest = db.scalar(
-        select(Rule)
-        .where(Rule.tenant_id == tenant_id, Rule.key == rule.key)
-        .order_by(Rule.version.desc())
-    )
-    next_version = (latest.version if latest else rule.version) + 1
-    new_rule = Rule(
-        tenant_id=tenant_id,
-        key=rule.key,
-        name=payload.name,
-        description=payload.description,
-        document_type=payload.document_type,
-        version=next_version,
-        status=payload.status,
-        definition=payload.definition.model_dump(),
-        created_by=author.id,
-    )
-    db.add(new_rule)
-    db.flush()
-    if payload.status == "active":
-        _close_active_versions(db, tenant_id, rule.key, new_rule.id)
-    elif rule.status == "draft":
-        rule.status = "archived"
-    db.commit()
-    db.refresh(new_rule)
-    return new_rule
+    last_error: Exception | None = None
+    for _attempt in range(5):
+        latest = db.scalar(
+            select(Rule)
+            .where(Rule.tenant_id == tenant_id, Rule.key == rule.key)
+            .order_by(Rule.version.desc())
+        )
+        next_version = (latest.version if latest else rule.version) + 1
+        new_rule = Rule(
+            tenant_id=tenant_id,
+            key=rule.key,
+            name=payload.name,
+            description=payload.description,
+            document_type=payload.document_type,
+            version=next_version,
+            status=payload.status,
+            definition=payload.definition.model_dump(),
+            created_by=author.id,
+        )
+        db.add(new_rule)
+        try:
+            db.flush()
+            if payload.status == "active":
+                _close_active_versions(db, tenant_id, rule.key, new_rule.id)
+            elif rule.status == "draft":
+                rule.status = "archived"
+            db.commit()
+        except IntegrityError as exc:
+            last_error = exc
+            db.rollback()
+            continue
+        db.refresh(new_rule)
+        return new_rule
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="The rule was changed concurrently; please retry",
+    ) from last_error
 
 
 def archive_rule(db: Session, rule: Rule) -> Rule:
