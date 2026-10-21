@@ -192,7 +192,7 @@ pdm-connector/
 | 2026-10-21 | 1.1 | Complete | PostgreSQL 17 migration cycle, 12-way counter concurrency, and Docker image build validated. Deployed on Debian 13 with the existing PostgreSQL container and Nginx; runtime and smoke tests passed. |
 | 2026-10-20 | 1.2 | Implemented | .NET PDM client, tests, CLI/simulator, net48 COM add-in, PowerShell installer. Add-in builds with zero warnings against PDM 2024 interop; live-vault test pending Windows/PDM. |
 | 2026-10-21 | 1.3 | Complete | Added link/metadata fields to web generation, `PATCH /items/{id}`, registry editing, partial unique active-reference index, duplicate 409 handling, audit events, tests, and docs. |
-| 2026-10-21 | 1.4 | Core complete | Added stub/file/REST ERP adapters, lookup and reconciliation endpoints, `reserved → committed` status handling, `item.committed` audit, configuration, tests, and documentation. `pytest` 20 passed; Ruff and frontend build clean. SOAP/vendor-specific adapters and ERP writes remain pending. |
+| 2026-10-21 | 1.4 | Core complete | Added stub/file/REST ERP adapters, lookup and reconciliation endpoints, `reserved → committed` status handling, `item.committed` audit, configuration, tests, and documentation. Added unit tests for generator/checksums, rule schemas, slugify, and security; `pytest` 70 passed; Ruff and frontend build clean. SOAP/vendor-specific adapters and ERP writes remain pending. |
 
 ---
 
