@@ -1,4 +1,4 @@
-.PHONY: install backend-install frontend-install dev dev-ui build test lint format clean migrate migration connector-build connector-test docker-build up down logs
+.PHONY: install backend-install frontend-install dev dev-ui build test lint format clean migrate migration connector-build connector-test docker-build up down logs sandbox-up sandbox-down sandbox-logs
 
 install: backend-install frontend-install
 	@test -f .env || cp .env.example .env
@@ -57,3 +57,12 @@ connector-build:
 
 connector-test:
 	dotnet test pdm-connector/PartCode.Connector.slnx
+
+sandbox-up:
+	cd sandbox && docker compose up -d --build
+
+sandbox-down:
+	cd sandbox && docker compose down
+
+sandbox-logs:
+	cd sandbox && docker compose logs -f

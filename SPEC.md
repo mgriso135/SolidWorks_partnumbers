@@ -16,8 +16,6 @@ It is **not** a PDM or an ERP. It is the authoritative **coding layer** that sit
 - ERP remains the source of truth for released items and BOMs.
 - PartCode owns the **rules**, generates **unique, standards-compliant codes**, and supplies **consistent metadata** to both sides.
 
-This is the same job performed by Nuovamacut RIC ("Regole in Cloud"), implemented as an independently buildable product.
-
 ### 1.1 Problem
 
 Companies with PDM + ERP commonly suffer from:

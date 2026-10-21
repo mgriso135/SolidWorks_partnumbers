@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PartCode PDM sandbox</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f6fa;
+        --panel: #ffffff;
+        --ink: #151827;
+        --muted: #646b7d;
+        --line: #dde1ea;
+        --accent: #4f46e5;
+        --accent-soft: #eef0ff;
+        --good: #157347;
+        --good-soft: #e9f7ef;
+        --bad: #b42318;
+        --bad-soft: #fff0ee;
+        --warn: #8a5a00;
+        --warn-soft: #fff8e6;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        padding: 32px 20px 60px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main { max-width: 1180px; margin: 0 auto; }
+
+      .top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: -0.03em; }
+      h2 { margin: 0; font-size: 17px; letter-spacing: -0.01em; }
+      h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+      p { margin: 0; }
+
+      .sub { color: var(--muted); max-width: 760px; }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .badge.good { background: var(--good-soft); color: var(--good); }
+      .badge.bad { background: var(--bad-soft); color: var(--bad); }
+      .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+      .health {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 20px;
+      }
+
+      .notice {
+        border: 1px solid var(--warn);
+        background: var(--warn-soft);
+        color: var(--warn);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 18px;
+        font-size: 14px;
+      }
+
+      .notice.bad {
+        border-color: var(--bad);
+        background: var(--bad-soft);
+        color: var(--bad);
+      }
+
+      .file-grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .file-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 8px 24px rgba(20, 24, 39, 0.04);
+      }
+
+      .file-head {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .file-id {
+        color: var(--muted);
+        font: 12px/1.4 var(--mono);
+        margin-top: 3px;
+      }
+
+      .columns {
+        display: grid;
+        grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
+        gap: 18px;
+      }
+
+      .box {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        background: #fbfbfd;
+      }
+
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      td { padding: 6px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
+      tr:last-child td { border-bottom: 0; }
+      td:first-child { color: var(--muted); width: 44%; padding-right: 12px; }
+      td:last-child { font-family: var(--mono); overflow-wrap: anywhere; }
+
+      label { display: block; font-size: 12px; font-weight: 650; color: var(--muted); margin-bottom: 4px; }
+
+      select, input {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        color: var(--ink);
+        padding: 8px 10px;
+        font: inherit;
+      }
+
+      select:focus, input:focus {
+        outline: 2px solid var(--accent-soft);
+        border-color: var(--accent);
+      }
+
+      .fields { display: grid; gap: 10px; margin-top: 12px; }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      button {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        color: var(--ink);
+        padding: 8px 12px;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      button:hover { border-color: var(--accent); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+      button.primary:hover { filter: brightness(0.95); }
+      button.danger { color: var(--bad); }
+      button:disabled { opacity: 0.55; cursor: wait; }
+
+      .result {
+        display: none;
+        margin-top: 14px;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        border: 1px solid var(--line);
+        background: #f7f8fb;
+        max-height: 260px;
+        overflow: auto;
+      }
+
+      .result.show { display: block; }
+      .result.ok { border-color: #b8e2c9; background: var(--good-soft); color: #114b31; }
+      .result.err { border-color: #f2c1bb; background: var(--bad-soft); color: #7a1a12; }
+
+      .footer {
+        margin-top: 28px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      code { font-family: var(--mono); font-size: 0.95em; }
+
+      @media (max-width: 820px) {
+        body { padding: 20px 12px 40px; }
+        .columns { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="top">
+        <div>
+          <h1>PartCode PDM sandbox</h1>
+          <p class="sub">
+            Fake vault, fake data cards, real PartCode API calls. This is a test
+            harness for the connector contract, not a SolidWorks PDM server.
+          </p>
+        </div>
+        <span class="badge" id="health-badge">Loading…</span>
+      </div>
+
+      <div class="health" id="health"></div>
+      <div id="notice"></div>
+
+      <div class="file-grid" id="files"></div>
+
+      <p class="footer">
+        Preview calls <code>/api/integrations/pdm/preview</code>. Reserve calls
+        <code>/api/integrations/pdm/reserve</code>, then writes the returned code
+        to the fake data-card variable. PartCode remains the only code authority.
+      </p>
+    </main>
+
+    <script>
+      const FILE_VARIABLES = ["Description", "Material", "Family"];
+      let RULES = [];
+      let FILES = [];
+      let HEALTH = null;
+      let TARGET = "PartNumber";
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+
+      function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function detailText(payload) {
+        if (payload == null) return "No response body.";
+        if (typeof payload === "string") return payload;
+        if (payload.detail !== undefined) {
+          const detail = payload.detail;
+          if (typeof detail === "string") return detail;
+          return JSON.stringify(detail, null, 2);
+        }
+        return JSON.stringify(payload, null, 2);
+      }
+
+      async function api(path, options = {}) {
+        const response = await fetch(path, {
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+          },
+        });
+        const raw = await response.text();
+        let body;
+        try {
+          body = raw ? JSON.parse(raw) : {};
+        } catch {
+          body = { detail: raw };
+        }
+        if (!response.ok) {
+          const error = new Error(detailText(body));
+          error.status = response.status;
+          error.body = body;
+          throw error;
+        }
+        return body;
+      }
+
+      function setResult(card, text, ok) {
+        const output = $(".result", card);
+        output.textContent = text;
+        output.className = "result show " + (ok ? "ok" : "err");
+      }
+
+      function dataCardValue(file, names) {
+        const wanted = names.filter(Boolean).map((name) => name.toLowerCase());
+        for (const [key, value] of Object.entries(file.variables || {})) {
+          if (wanted.includes(key.toLowerCase()) && String(value || "").trim() !== "") {
+            return String(value);
+          }
+        }
+        return "";
+      }
+
+      function ruleFor(card) {
+        const key = $(".rule-select", card).value;
+        return RULES.find((rule) => rule.key === key);
+      }
+
+      function buildFields(file, card) {
+        const container = $(".fields", card);
+        container.replaceChildren();
+        const rule = ruleFor(card);
+        if (!rule) return;
+
+        const segments = rule.definition?.segments || [];
+        for (const segment of segments) {
+          if (!segment.key) continue;
+          if (segment.type !== "list" && segment.type !== "text") continue;
+
+          const label = el("label", null, (segment.label || segment.key) + (segment.required ? " *" : ""));
+          const key = segment.key;
+          const initial = dataCardValue(file, [segment.key, segment.label]);
+          let input;
+
+          if (segment.type === "list") {
+            input = el("select");
+            const blank = el("option", null, "— select —");
+            blank.value = "";
+            input.appendChild(blank);
+            for (const option of segment.options || []) {
+              const choice = el("option", null, option.label || option.value);
+              choice.value = option.value;
+              input.appendChild(choice);
+            }
+            input.value = initial;
+          } else {
+            input = el("input");
+            input.type = "text";
+            input.value = initial;
+          }
+
+          input.dataset.fieldKey = key;
+          input.dataset.fieldType = segment.type;
+          const wrapper = el("div");
+          wrapper.append(label, input);
+          container.appendChild(wrapper);
+        }
+      }
+
+      function collectValues(card) {
+        const values = {};
+        for (const input of card.querySelectorAll("[data-field-key]")) {
+          values[input.dataset.fieldKey] = input.value.trim();
+        }
+        return values;
+      }
+
+      function updateTarget(file, card) {
+        const value = file.variables?.[TARGET] || "";
+        const targetNode = $(".target-value", card);
+        if (targetNode) targetNode.textContent = value || "—";
+        const badge = $(".assigned-badge", card);
+        if (badge) {
+          if (value) {
+            badge.textContent = "assigned";
+            badge.className = "badge good assigned-badge";
+          } else {
+            badge.textContent = "unassigned";
+            badge.className = "badge warn assigned-badge";
+          }
+        }
+      }
+
+      function renderFile(file) {
+        const card = el("article", "file-card");
+        card.dataset.id = String(file.id);
+
+        const head = el("div", "file-head");
+        const title = el("div");
+        title.append(el("h2", null, file.name));
+        title.append(el("div", "file-id", `File ID ${file.id} · ${file.path}`));
+        const status = el("span", "badge assigned-badge");
+        if (file.variables?.[TARGET]) {
+          status.textContent = "assigned";
+          status.className = "badge good assigned-badge";
+        } else {
+          status.textContent = "unassigned";
+          status.className = "badge warn assigned-badge";
+        }
+        head.append(title, status);
+
+        const columns = el("div", "columns");
+
+        const cardBox = el("div", "box");
+        cardBox.append(el("h3", null, "PDM data card"));
+        const table = el("table");
+        for (const name of FILE_VARIABLES) {
+          const row = el("tr");
+          row.append(el("td", null, name));
+          row.append(el("td", null, String(file.variables?.[name] || "—")));
+          table.append(row);
+        }
+        const targetRow = el("tr");
+        targetRow.append(el("td", null, TARGET));
+        const targetValue = el("td", "target-value", file.variables?.[TARGET] || "—");
+        targetRow.append(targetValue);
+        table.append(targetRow);
+        cardBox.append(table);
+
+        const reset = el("button", "danger", "Reset fake file");
+        reset.type = "button";
+        reset.addEventListener("click", async () => {
+          reset.disabled = true;
+          try {
+            await api(`/api/files/${file.id}/reset`, { method: "POST", body: "{}" });
+            await loadFiles();
+          } catch (error) {
+            setResult(card, detailText(error.body || error.message), false);
+          } finally {
+            reset.disabled = false;
+          }
+        });
+        const resetActions = el("div", "actions");
+        resetActions.append(reset);
+        cardBox.append(resetActions);
+
+        const assignBox = el("div", "box");
+        assignBox.append(el("h3", null, "Assign a code"));
+        const ruleLabel = el("label", null, "Rule");
+        const ruleSelect = el("select", "rule-select");
+        for (const rule of RULES) {
+          const option = el("option", null, `${rule.name} (v${rule.version})`);
+          option.value = rule.key;
+          ruleSelect.append(option);
+        }
+        if (!RULES.length) {
+          const option = el("option", null, "No active rules available");
+          option.value = "";
+          ruleSelect.append(option);
+        }
+        ruleSelect.addEventListener("change", () => buildFields(file, card));
+        assignBox.append(ruleLabel, ruleSelect);
+
+        const fields = el("div", "fields");
+        assignBox.append(fields);
+
+        const actions = el("div", "actions");
+        const preview = el("button", null, "Preview");
+        const reserve = el("button", "primary", "Reserve and write");
+        preview.type = "button";
+        reserve.type = "button";
+        preview.addEventListener("click", () => run(file, card, "preview"));
+        reserve.addEventListener("click", () => run(file, card, "reserve"));
+        actions.append(preview, reserve);
+        assignBox.append(actions);
+
+        const result = el("div", "result");
+        assignBox.append(result);
+
+        columns.append(cardBox, assignBox);
+        card.append(head, columns);
+        buildFields(file, card);
+        return card;
+      }
+
+      function renderFiles() {
+        const root = $("#files");
+        root.replaceChildren();
+        if (!FILES.length) {
+          root.append(el("p", null, "No fake files loaded."));
+          return;
+        }
+        for (const file of FILES) root.append(renderFile(file));
+      }
+
+      async function run(file, card, mode) {
+        const rule = ruleFor(card);
+        if (!rule) {
+          setResult(card, "Select a rule first.", false);
+          return;
+        }
+
+        const buttons = card.querySelectorAll("button");
+        buttons.forEach((button) => (button.disabled = true));
+        setResult(card, mode === "preview" ? "Previewing…" : "Reserving and writing…", true);
+
+        try {
+          const body = await api(`/api/files/${file.id}/${mode}`, {
+            method: "POST",
+            body: JSON.stringify({ rule_key: rule.key, values: collectValues(card) }),
+          });
+
+          if (mode === "preview") {
+            setResult(card, `Preview: ${body.code}\n\n` + JSON.stringify(body, null, 2), true);
+          } else {
+            const updated = body.file;
+            const index = FILES.findIndex((item) => item.id === file.id);
+            if (index >= 0) FILES[index] = updated;
+            updateTarget(updated, card);
+            setResult(
+              card,
+              `Reserved ${body.result.code} and wrote it to ${TARGET}.\n\n` +
+                JSON.stringify(body.result, null, 2),
+              true
+            );
+          }
+        } catch (error) {
+          const suffix = error.status ? ` (HTTP ${error.status})` : "";
+          setResult(card, `PartCode rejected the request${suffix}.\n\n${detailText(error.body || error.message)}`, false);
+        } finally {
+          buttons.forEach((button) => (button.disabled = false));
+        }
+      }
+
+      async function loadFiles() {
+        FILES = await api("/api/files");
+        renderFiles();
+      }
+
+      async function boot() {
+        const healthBadge = $("#health-badge");
+        const healthBox = $("#health");
+        const notice = $("#notice");
+
+        try {
+          HEALTH = await api("/health");
+          TARGET = HEALTH.target_variable || TARGET;
+          healthBadge.textContent = HEALTH.api_key_configured ? "API key configured" : "API key missing";
+          healthBadge.className = "badge " + (HEALTH.api_key_configured ? "good" : "bad");
+
+          healthBox.append(el("span", "badge", `PartCode: ${HEALTH.partcode_url}`));
+          healthBox.append(el("span", "badge", `Vault: ${HEALTH.vault}`));
+          healthBox.append(el("span", "badge", `Document type: ${HEALTH.document_type}`));
+          healthBox.append(el("span", "badge", `Target: ${HEALTH.target_variable}`));
+
+          if (!HEALTH.api_key_configured) {
+            notice.append(
+              el(
+                "div",
+                "notice bad",
+                "PARTCODE_API_KEY is not set. Add it to the sandbox environment, then restart the container."
+              )
+            );
+          } else if (!HEALTH.partcode_url.startsWith("http")) {
+            notice.append(el("div", "notice", "PARTCODE_URL does not look like an HTTP URL."));
+          }
+
+          try {
+            RULES = await api("/api/rules");
+            if (!RULES.length) {
+              notice.append(el("div", "notice", "No active rules were returned for this document type."));
+            }
+          } catch (error) {
+            RULES = [];
+            notice.append(
+              el("div", "notice bad", "Could not load rules from PartCode.\n\n" + detailText(error.body || error.message))
+            );
+          }
+
+          await loadFiles();
+        } catch (error) {
+          healthBadge.textContent = "sandbox unavailable";
+          healthBadge.className = "badge bad";
+          notice.append(el("div", "notice bad", detailText(error.body || error.message)));
+        }
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

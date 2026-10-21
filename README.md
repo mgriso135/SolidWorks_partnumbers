@@ -2,12 +2,13 @@
 
 PartCode is a cloud part-numbering service: it owns the coding **rules**, generates unique codes, and exposes them to a web UI, SolidWorks PDM, and ERP through one REST API.
 
-It is the buildable counterpart to Nuovamacut RIC ("Regole in Cloud"). The research behind the product is in [`REQUIREMENTS.md`](REQUIREMENTS.md), the product contract is in [`SPEC.md`](SPEC.md), and the delivery plan is in [`PLAN.md`](PLAN.md).
+The requirements behind the product are in [`REQUIREMENTS.md`](REQUIREMENTS.md), the product contract is in [`SPEC.md`](SPEC.md), and the delivery plan is in [`PLAN.md`](PLAN.md).
 
 ## Documentation
 
 - [End-user guide](docs/wiki/End-User-Guide.md) — how engineers and administrators use the web UI and the PDM add-in.
 - [Deployment guide](docs/DEPLOYMENT.md) — Debian 13, Docker, existing PostgreSQL, Nginx, LAN/public TLS, backups, and upgrades.
+- [PDM sandbox](sandbox/README.md) — a disposable fake PDM vault and browser UI for testing the connector contract without Windows or PDM.
 
 ## What is included
 
@@ -17,6 +18,7 @@ It is the buildable counterpart to Nuovamacut RIC ("Regole in Cloud"). The resea
 - **REST API** — JWT for people, `X-API-Key` for machines, OpenAPI at `/docs`.
 - **PDM contract** — list rules, preview, reserve, lookup, validate; plus an ERP lookup stub.
 - **SolidWorks PDM connector** — a .NET Framework 4.8 COM add-in, shared typed client, CLI/simulator, and installer in `pdm-connector/`.
+- **PDM sandbox** — a fake vault/data card and browser test UI that sends the same HTTP requests as the add-in, for testing without a Windows PDM environment.
 - **Multi-tenant data model** with audit trail on every mutation.
 - **Tests** — API, RBAC, rule versioning, generation, scoped counters, concurrency, and the API-key flow.
 
@@ -228,6 +230,8 @@ make migrate          # apply Alembic migrations to the configured DB
 make migration m="…"  # autogenerate a new migration
 make connector-test   # .NET client tests
 make connector-build  # build the add-in, client, and CLI
+make sandbox-up       # start the fake PDM vault sandbox on :7100
+make sandbox-down     # stop the sandbox
 make up / make down   # Docker Compose with PostgreSQL
 ```
 
@@ -270,7 +274,17 @@ pdm-connector/
 └── installer/                     PowerShell install/uninstall + DPAPI config
 ```
 
+Sandbox layout:
+
+```
+sandbox/
+├── docker-compose.yml
+├── .env.example
+└── pdm-mock/          fake PDM API + browser test UI
+```
+
 See `pdm-connector/README.md` for build, install, settings, and current limitations.
+See `sandbox/README.md` for the no-Windows connector test.
 
 ## Production notes
 

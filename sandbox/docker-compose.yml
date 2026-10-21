@@ -1,0 +1,16 @@
+services:
+  pdm-mock:
+    build:
+      context: ./pdm-mock
+    environment:
+      PARTCODE_URL: ${PARTCODE_URL:-http://host.docker.internal:7000}
+      PARTCODE_API_KEY: ${PARTCODE_API_KEY:-}
+      PARTCODE_TLS_INSECURE: ${PARTCODE_TLS_INSECURE:-}
+      PDM_VAULT: ${PDM_VAULT:-SandboxVault}
+      TARGET_VARIABLE: ${TARGET_VARIABLE:-PartNumber}
+      DOCUMENT_TYPE: ${DOCUMENT_TYPE:-part}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${SANDBOX_BIND:-127.0.0.1}:7100:7100"
+    restart: unless-stopped
