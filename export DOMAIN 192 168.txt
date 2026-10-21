@@ -1,0 +1,18 @@
+export DOMAIN="192.168.1.249"
+export PG_CONTAINER="global_production_postgres"
+export PG_NETWORK="shared-network"
+export ADMIN_EMAIL="mgriso@kaizenkey.com"
+export TENANT_NAME="Kaizen Key"
+export LETSENCRYPT_EMAIL="it@example.com"  # only for public Let's Encrypt
+export BASE_URL="http://192.168.1.249"        # use http:// for an HTTP-only LAN pilot
+
+matteo@kaizenkey-srv:~/global-infra/postgres$ export DB_PASSWORD="$(openssl rand -hex 24)"
+matteo@kaizenkey-srv:~/global-infra/postgres$ export JWT_SECRET="$(openssl rand -hex 48)"
+matteo@kaizenkey-srv:~/global-infra/postgres$ echo $DB_PASSWORD
+d1885fb7463af89b1c1fcd2d335bbd7d307e3bedee279d63
+matteo@kaizenkey-srv:~/global-infra/postgres$ echo $JWT_SECRET
+686b045d43ae1027250a45832cc12ae45d3c647ceb8d90b06ef3072977311da263742ed140a9b3e7931aa57cb5d2f41a
+matteo@kaizenkey-srv:~/global-infra/postgres$ 
+
+
+

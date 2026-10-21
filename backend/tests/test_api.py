@@ -1,0 +1,444 @@
+from __future__ import annotations
+
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+
+from app.db import SessionLocal
+from app.models import Rule
+from app.schemas import GenerateRequest
+from app.services import generator
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from .conftest import login
+
+
+def unique_key(prefix: str = "test") -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def make_rule(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    key: str | None = None,
+    definition: dict | None = None,
+    document_type: str = "part",
+    status: str = "active",
+) -> dict:
+    key = key or unique_key()
+    prefix = f"T{key.replace('-', '')[:10].upper()}"
+    payload = {
+        "name": f"Rule {key}",
+        "description": "test rule",
+        "document_type": document_type,
+        "key": key,
+        "status": status,
+        "definition": definition
+        or {
+            "segments": [
+                {"type": "literal", "value": prefix},
+                {"type": "separator", "value": "-"},
+                {
+                    "type": "list",
+                    "key": "family",
+                    "label": "Family",
+                    "options": [
+                        {"value": "MEC", "label": "Mechanical"},
+                        {"value": "ELE", "label": "Electrical"},
+                    ],
+                },
+                {"type": "separator", "value": "-"},
+                {
+                    "type": "counter",
+                    "key": "seq",
+                    "padding": 4,
+                    "start": 1,
+                    "step": 1,
+                    "scope": "per_value",
+                    "scope_keys": ["family"],
+                },
+            ],
+            "max_length": 32,
+            "case": "upper",
+        },
+    }
+    response = client.post("/api/rules", json=payload, headers=headers)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_health_and_login(client: TestClient) -> None:
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "ok"
+
+    bad = client.post("/api/auth/login", json={"email": "admin@demo.local", "password": "wrong"})
+    assert bad.status_code == 401
+
+    headers = login(client, "admin@demo.local", "Admin123!")
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin"
+    assert me.json()["email"] == "admin@demo.local"
+
+
+def test_role_based_access(client: TestClient, viewer_headers: dict[str, str]) -> None:
+    payload = {
+        "name": "Viewer attempt",
+        "key": unique_key("viewer"),
+        "definition": {"segments": [{"type": "literal", "value": "NOPE"}]},
+    }
+    response = client.post("/api/rules", json=payload, headers=viewer_headers)
+    assert response.status_code == 403
+
+    # Viewers can still read and generate.
+    assert client.get("/api/rules", headers=viewer_headers).status_code == 200
+
+
+def test_rule_lifecycle_and_versioning(client: TestClient, editor_headers: dict[str, str]) -> None:
+    rule = make_rule(client, editor_headers)
+    assert rule["version"] == 1
+    assert rule["status"] == "active"
+
+    update = {
+        "name": rule["name"],
+        "description": "updated",
+        "document_type": "part",
+        "status": "active",
+        "definition": {
+            "segments": [
+                {"type": "literal", "value": "UPD"},
+                {"type": "separator", "value": "-"},
+                {"type": "counter", "key": "seq", "padding": 3, "scope": "rule"},
+            ]
+        },
+    }
+    response = client.put(f"/api/rules/{rule['id']}", json=update, headers=editor_headers)
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["version"] == 2
+    assert updated["status"] == "active"
+    assert updated["definition"]["segments"][0]["value"] == "UPD"
+
+    versions = client.get(f"/api/rules/{rule['id']}/versions", headers=editor_headers).json()
+    assert len(versions) == 2
+    statuses = {v["version"]: v["status"] for v in versions}
+    assert statuses[1] == "archived"
+    assert statuses[2] == "active"
+
+    archived = client.post(f"/api/rules/{updated['id']}/archive", headers=editor_headers)
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "archived"
+
+    generate = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {}},
+        headers=editor_headers,
+    )
+    assert generate.status_code == 404
+
+
+def test_timestamps_include_utc_offset(client: TestClient, admin_headers: dict[str, str]) -> None:
+    response = client.get("/api/auth/me", headers=admin_headers)
+    assert response.status_code == 200
+    value = response.json()["created_at"].replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(value)
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset() == timedelta(0)
+
+
+def test_draft_version_does_not_hide_active_version(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    update = {
+        "name": rule["name"],
+        "description": "work in progress",
+        "document_type": "part",
+        "status": "draft",
+        "definition": {
+            "segments": [
+                {"type": "literal", "value": "DRAFT"},
+                {"type": "separator", "value": "-"},
+                {"type": "counter", "key": "seq", "padding": 3, "scope": "rule"},
+            ]
+        },
+    }
+    response = client.put(f"/api/rules/{rule['id']}", json=update, headers=editor_headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "draft"
+    assert response.json()["version"] == 2
+
+    active_rules = client.get(
+        "/api/rules",
+        params={"status_filter": "active"},
+        headers=editor_headers,
+    ).json()
+    matching = [item for item in active_rules if item["key"] == rule["key"]]
+    assert len(matching) == 1
+    assert matching[0]["version"] == 1
+
+    generate = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"family": "MEC"}},
+        headers=editor_headers,
+    )
+    assert generate.status_code == 200
+    assert generate.json()["rule_version"] == 1
+
+
+def test_preview_does_not_consume_counter(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    values = {"family": "MEC"}
+    first = client.post(
+        "/api/generate/preview",
+        json={"rule_key": rule["key"], "values": values},
+        headers=editor_headers,
+    )
+    second = client.post(
+        "/api/generate/preview",
+        json={"rule_key": rule["key"], "values": values},
+        headers=editor_headers,
+    )
+    assert first.status_code == 200
+    assert first.json()["code"] == second.json()["code"]
+
+    committed = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": values},
+        headers=editor_headers,
+    )
+    assert committed.status_code == 200, committed.text
+    assert committed.json()["code"] == first.json()["code"]
+
+
+def test_scoped_counters_and_validation(client: TestClient, editor_headers: dict[str, str]) -> None:
+    rule = make_rule(client, editor_headers)
+    key = rule["key"]
+
+    def generate(family: str):
+        return client.post(
+            "/api/generate",
+            json={"rule_key": key, "values": {"family": family}},
+            headers=editor_headers,
+        )
+
+    mec = generate("MEC").json()["code"]
+    ele = generate("ELE").json()["code"]
+    mec2 = generate("MEC").json()["code"]
+    assert mec.endswith("-0001")
+    assert ele.endswith("-0001")
+    assert mec2.endswith("-0002")
+
+    invalid = generate("XYZ")
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "INVALID_INPUT"
+    assert "family" in invalid.json()["detail"]["fields"]
+
+    missing = client.post(
+        "/api/generate", json={"rule_key": key, "values": {}}, headers=editor_headers
+    )
+    assert missing.status_code == 422
+    assert missing.json()["detail"]["fields"]["family"]
+
+
+def test_text_and_checksum_segments(client: TestClient, editor_headers: dict[str, str]) -> None:
+    definition = {
+        "segments": [
+            {"type": "literal", "value": "TX"},
+            {"type": "separator", "value": "-"},
+            {
+                "type": "text",
+                "key": "serial",
+                "label": "Serial",
+                "min_length": 3,
+                "max_length": 3,
+                "regex": "^[0-9]{3}$",
+            },
+            {"type": "separator", "value": "-"},
+            {"type": "checksum", "algorithm": "mod97"},
+        ]
+    }
+    rule = make_rule(client, editor_headers, definition=definition)
+
+    bad = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"serial": "abc"}},
+        headers=editor_headers,
+    )
+    assert bad.status_code == 422
+    assert "serial" in bad.json()["detail"]["fields"]
+
+    good = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"serial": "123"}},
+        headers=editor_headers,
+    )
+    assert good.status_code == 200, good.text
+    code = good.json()["code"]
+    assert code.startswith("TX-123-")
+    assert len(code) == len("TX-123-") + 2
+
+
+def test_external_reference_is_idempotent(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    body = {
+        "rule_key": rule["key"],
+        "values": {"family": "MEC"},
+        "external_ref": f"vault://{uuid.uuid4().hex}/Part.SLDPRT",
+    }
+    first = client.post("/api/generate", json=body, headers=editor_headers)
+    assert first.status_code == 200
+    second = client.post("/api/generate", json=body, headers=editor_headers)
+    assert second.status_code == 409
+    detail = second.json()["detail"]
+    assert detail["code"] == "DUPLICATE_EXTERNAL_REF"
+    assert detail["fields"]["code"] == first.json()["code"]
+
+
+def test_pdm_api_key_flow(
+    client: TestClient, admin_headers: dict[str, str], editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    created = client.post(
+        "/api/admin/api-keys", json={"name": "PDM connector"}, headers=admin_headers
+    )
+    assert created.status_code == 201, created.text
+    secret = created.json()["key"]
+    assert secret.startswith("pk_live_")
+
+    headers = {"X-API-Key": secret}
+    rules = client.get("/api/integrations/pdm/rules", headers=headers)
+    assert rules.status_code == 200
+    assert any(item["key"] == rule["key"] for item in rules.json())
+
+    preview = client.post(
+        "/api/integrations/pdm/preview",
+        json={"rule_key": rule["key"], "values": {"family": "ELE"}},
+        headers=headers,
+    )
+    assert preview.status_code == 200
+
+    reserved = client.post(
+        "/api/integrations/pdm/reserve",
+        json={
+            "rule_key": rule["key"],
+            "values": {"family": "ELE"},
+            "external_ref": f"pdm:{uuid.uuid4().hex}",
+        },
+        headers=headers,
+    )
+    assert reserved.status_code == 200, reserved.text
+    code = reserved.json()["code"]
+
+    lookup = client.get("/api/integrations/pdm/lookup", params={"code": code}, headers=headers)
+    assert lookup.status_code == 200
+    assert lookup.json()["exists"] is True
+    assert lookup.json()["item"]["source"] == "pdm"
+
+    missing = client.get(
+        "/api/integrations/pdm/lookup",
+        params={"code": "DOES-NOT-EXIST"},
+        headers=headers,
+    )
+    assert missing.status_code == 200
+    assert missing.json()["exists"] is False
+
+    invalid = client.get("/api/integrations/pdm/rules", headers={"X-API-Key": "pk_live_bogus"})
+    assert invalid.status_code == 401
+
+
+def test_items_lookup_and_void(
+    client: TestClient,
+    editor_headers: dict[str, str],
+    viewer_headers: dict[str, str],
+) -> None:
+    rule = make_rule(client, editor_headers)
+    generated = client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"family": "MEC"}},
+        headers=editor_headers,
+    ).json()
+    code = generated["code"]
+
+    lookup = client.get("/api/items/lookup", params={"code": code}, headers=viewer_headers)
+    assert lookup.status_code == 200
+    assert lookup.json()["code"] == code
+
+    forbidden = client.post(f"/api/items/{generated['item_id']}/void", headers=viewer_headers)
+    assert forbidden.status_code == 403
+
+    voided = client.post(f"/api/items/{generated['item_id']}/void", headers=editor_headers)
+    assert voided.status_code == 200
+    assert voided.json()["status"] == "void"
+    assert voided.json()["voided_at"] is not None
+
+    again = client.post(f"/api/items/{generated['item_id']}/void", headers=editor_headers)
+    assert again.status_code == 409
+
+
+def test_audit_and_stats(
+    client: TestClient, admin_headers: dict[str, str], editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    client.post(
+        "/api/generate",
+        json={"rule_key": rule["key"], "values": {"family": "MEC"}},
+        headers=editor_headers,
+    )
+
+    audit = client.get(
+        "/api/admin/audit", params={"action": "code.generated"}, headers=admin_headers
+    )
+    assert audit.status_code == 200
+    assert audit.json()["total"] >= 1
+    assert audit.json()["items"][0]["action"] == "code.generated"
+
+    stats = client.get("/api/admin/stats", headers=admin_headers)
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["items_total"] >= 1
+    assert body["active_rules"] >= 1
+    assert "recent_items" in body
+    assert body["by_source"].get("web", 0) >= 1
+
+    assert client.get("/api/admin/stats", headers=editor_headers).status_code == 200
+
+    forbidden = client.get("/api/admin/users", headers=editor_headers)
+    assert forbidden.status_code == 403
+
+
+def test_concurrent_generation_is_unique(
+    client: TestClient, editor_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    key = rule["key"]
+
+    def worker() -> str:
+        with SessionLocal() as db:
+            current = db.scalar(
+                select(Rule).where(Rule.tenant_id == rule["tenant_id"], Rule.key == key)
+            )
+            assert current is not None
+            request = GenerateRequest(rule_key=key, values={"family": "MEC"})
+            item, _segments = generator.commit_code(
+                db,
+                tenant_id=rule["tenant_id"],
+                rule=current,
+                request=request,
+                created_by=None,
+            )
+            return item.code
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        codes = list(pool.map(lambda _: worker(), range(8)))
+
+    assert len(codes) == 8
+    assert len(set(codes)) == 8
+    assert all(code.startswith("T") and "-MEC-" in code for code in codes)

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="PartCode.Connector.Cli/PartCode.Connector.Cli.csproj" />
+  <Project Path="PartCode.Connector.Core.Tests/PartCode.Connector.Core.Tests.csproj" />
+  <Project Path="PartCode.Connector.Core/PartCode.Connector.Core.csproj" />
+  <Project Path="PartCode.PdmAddIn/PartCode.PdmAddIn.csproj" />
+</Solution>

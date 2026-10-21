@@ -1,0 +1,29 @@
+# Environment and databases
+.env
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# .NET connector
+pdm-connector/**/bin/
+pdm-connector/**/obj/
+pdm-connector/**/TestResults/
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
