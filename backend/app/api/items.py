@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import get_current_user, require_roles
 from ..models import Item, User, utcnow
-from ..schemas import ItemOut, ItemPage
-from ..services import audit
+from ..schemas import ItemOut, ItemPage, ItemUpdate
+from ..services import audit, generator
+from ..services.errors import GenerationError
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -72,6 +74,90 @@ def get_item(
     item = db.scalar(select(Item).where(Item.id == item_id, Item.tenant_id == user.tenant_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return ItemOut.model_validate(item)
+
+
+@router.patch("/{item_id}", response_model=ItemOut)
+def update_item(
+    item_id: str,
+    payload: ItemUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("admin", "editor")),
+) -> ItemOut:
+    item = db.scalar(select(Item).where(Item.id == item_id, Item.tenant_id == user.tenant_id))
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if item.status == "void":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Voided items cannot be edited",
+        )
+
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        return ItemOut.model_validate(item)
+
+    before = {
+        "external_ref": item.external_ref,
+        "notes": item.notes,
+        "metadata_keys": sorted(item.payload),
+    }
+
+    if "external_ref" in changes:
+        external_ref = generator.normalize_external_ref(changes["external_ref"])
+        if external_ref != item.external_ref:
+            generator.ensure_external_ref_available(
+                db,
+                tenant_id=user.tenant_id,
+                external_ref=external_ref,
+                exclude_item_id=item.id,
+            )
+        item.external_ref = external_ref
+
+    if "notes" in changes:
+        notes = changes["notes"]
+        item.notes = notes.strip() if notes and notes.strip() else None
+
+    if "metadata" in changes:
+        item.payload = changes["metadata"] or {}
+
+    audit.record(
+        db,
+        tenant_id=user.tenant_id,
+        actor_id=user.id,
+        action="item.updated",
+        entity_type="item",
+        entity_id=item.id,
+        details={
+            "code": item.code,
+            "changed": sorted(changes),
+            "before": before,
+            "after": {
+                "external_ref": item.external_ref,
+                "notes": item.notes,
+                "metadata_keys": sorted(item.payload),
+            },
+        },
+        ip=request.client.host if request.client else None,
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if "external_ref" in changes:
+            generator.ensure_external_ref_available(
+                db,
+                tenant_id=user.tenant_id,
+                external_ref=changes["external_ref"],
+                exclude_item_id=item.id,
+            )
+        raise GenerationError(
+            "CONFLICT",
+            "Could not update the item because another value is already in use",
+            status_code=409,
+        ) from exc
+    db.refresh(item)
     return ItemOut.model_validate(item)
 
 

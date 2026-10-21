@@ -300,6 +300,145 @@ def test_external_reference_is_idempotent(
     detail = second.json()["detail"]
     assert detail["code"] == "DUPLICATE_EXTERNAL_REF"
     assert detail["fields"]["code"] == first.json()["code"]
+    assert detail["fields"]["external_ref"] == body["external_ref"]
+    assert body["external_ref"] in detail["message"]
+
+
+def test_generation_can_link_reference_and_metadata(
+    client: TestClient, editor_headers: dict[str, str], viewer_headers: dict[str, str]
+) -> None:
+    rule = make_rule(client, editor_headers)
+    external_ref = f"vault://{uuid.uuid4().hex}/Bracket.SLDPRT"
+    response = client.post(
+        "/api/generate",
+        json={
+            "rule_key": rule["key"],
+            "values": {"family": "MEC"},
+            "external_ref": f"  {external_ref}  ",
+            "notes": "  linked from the web  ",
+            "metadata": {"material": "S355", "revision": "A"},
+        },
+        headers=editor_headers,
+    )
+    assert response.status_code == 200, response.text
+    item_id = response.json()["item_id"]
+
+    item = client.get(f"/api/items/{item_id}", headers=viewer_headers)
+    assert item.status_code == 200
+    body = item.json()
+    assert body["external_ref"] == external_ref
+    assert body["notes"] == "  linked from the web  "
+    assert body["payload"]["material"] == "S355"
+    assert body["payload"]["revision"] == "A"
+    assert body["payload"]["family"] == "MEC"
+
+    duplicate = client.post(
+        "/api/generate",
+        json={
+            "rule_key": rule["key"],
+            "values": {"family": "MEC"},
+            "external_ref": external_ref,
+        },
+        headers=editor_headers,
+    )
+    assert duplicate.status_code == 409
+    detail = duplicate.json()["detail"]
+    assert detail["code"] == "DUPLICATE_EXTERNAL_REF"
+    assert detail["fields"]["external_ref"] == external_ref
+    assert external_ref in detail["message"]
+    assert detail["fields"]["code"] == response.json()["code"]
+
+
+def test_item_link_can_be_edited_after_generation(
+    client: TestClient,
+    editor_headers: dict[str, str],
+    viewer_headers: dict[str, str],
+) -> None:
+    rule = make_rule(client, editor_headers)
+
+    def generate() -> str:
+        response = client.post(
+            "/api/generate",
+            json={"rule_key": rule["key"], "values": {"family": "MEC"}},
+            headers=editor_headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["item_id"]
+
+    item_id = generate()
+    external_ref = f"pdm:{uuid.uuid4().hex}"
+
+    linked = client.patch(
+        f"/api/items/{item_id}",
+        json={
+            "external_ref": external_ref,
+            "notes": "  linked later  ",
+            "metadata": {"material": "S355", "description": "Bracket"},
+        },
+        headers=editor_headers,
+    )
+    assert linked.status_code == 200, linked.text
+    body = linked.json()
+    assert body["external_ref"] == external_ref
+    assert body["notes"] == "linked later"
+    assert body["payload"] == {"material": "S355", "description": "Bracket"}
+
+    search = client.get("/api/items", params={"q": external_ref}, headers=viewer_headers)
+    assert search.status_code == 200
+    assert {item["id"] for item in search.json()["items"]} == {item_id}
+
+    same = client.patch(
+        f"/api/items/{item_id}",
+        json={"external_ref": external_ref, "notes": "updated"},
+        headers=editor_headers,
+    )
+    assert same.status_code == 200
+    assert same.json()["external_ref"] == external_ref
+
+    forbidden = client.patch(
+        f"/api/items/{item_id}",
+        json={"external_ref": f"pdm:{uuid.uuid4().hex}"},
+        headers=viewer_headers,
+    )
+    assert forbidden.status_code == 403
+
+    other_id = generate()
+    conflict = client.patch(
+        f"/api/items/{other_id}",
+        json={"external_ref": external_ref},
+        headers=editor_headers,
+    )
+    assert conflict.status_code == 409
+    conflict_detail = conflict.json()["detail"]
+    assert conflict_detail["code"] == "DUPLICATE_EXTERNAL_REF"
+    assert conflict_detail["fields"]["external_ref"] == external_ref
+    assert conflict_detail["fields"]["item_id"] == item_id
+
+    voided = client.post(f"/api/items/{item_id}/void", headers=editor_headers)
+    assert voided.status_code == 200
+
+    reused = client.patch(
+        f"/api/items/{other_id}",
+        json={"external_ref": external_ref},
+        headers=editor_headers,
+    )
+    assert reused.status_code == 200, reused.text
+    assert reused.json()["external_ref"] == external_ref
+
+    void_edit = client.patch(
+        f"/api/items/{item_id}",
+        json={"notes": "cannot edit a void item"},
+        headers=editor_headers,
+    )
+    assert void_edit.status_code == 409
+
+    audit = client.get(
+        "/api/admin/audit",
+        params={"action": "item.updated"},
+        headers=editor_headers,
+    )
+    assert audit.status_code == 200
+    assert audit.json()["total"] >= 2
 
 
 def test_pdm_api_key_flow(

@@ -39,6 +39,15 @@ function isReady(rule: Rule, values: Record<string, string>): boolean {
   );
 }
 
+function parseMetadata(text: string): Record<string, unknown> | null {
+  if (!text.trim()) return null;
+  const parsed: unknown = JSON.parse(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Metadata must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export function Generate({
   user,
   onNavigate,
@@ -57,6 +66,10 @@ export function Generate({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<GenerateResult | null>(null);
+  const [externalRef, setExternalRef] = useState("");
+  const [notes, setNotes] = useState("");
+  const [metadataText, setMetadataText] = useState("");
+  const [linkError, setLinkError] = useState("");
 
   const selected = useMemo(
     () => rules.find((rule) => rule.key === selectedKey) ?? null,
@@ -91,6 +104,10 @@ export function Generate({
     setPreviewError("");
     setFieldErrors({});
     setSuccess(null);
+    setExternalRef("");
+    setNotes("");
+    setMetadataText("");
+    setLinkError("");
   }, [selected]);
 
   useEffect(() => {
@@ -133,11 +150,31 @@ export function Generate({
     if (!selected) return;
     setGenerating(true);
     setError("");
+    setLinkError("");
+    let metadata: Record<string, unknown> | null = null;
     try {
-      const result = await api.generate({ rule_key: selected.key, values });
+      metadata = parseMetadata(metadataText);
+    } catch (err) {
+      setLinkError(
+        err instanceof Error ? `Invalid metadata: ${err.message}` : "Invalid metadata JSON.",
+      );
+      setGenerating(false);
+      return;
+    }
+    try {
+      const result = await api.generate({
+        rule_key: selected.key,
+        values,
+        external_ref: externalRef.trim() || null,
+        notes: notes.trim() || null,
+        metadata: metadata ?? undefined,
+      });
       setSuccess(result);
       setPreview(result);
       setValues(initialValues(selected));
+      setExternalRef("");
+      setNotes("");
+      setMetadataText("");
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -311,6 +348,54 @@ export function Generate({
                     </Field>
                   );
                 })}
+              </div>
+
+              <div className="form-section">
+                <div className="card-head">
+                  <div>
+                    <h3>Link and metadata</h3>
+                    <p>Optional. Leave the reference empty for a standalone code.</p>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <Field
+                    label="External reference"
+                    hint="Example: PDM:VaultName:1234 or vault://Projects/Bracket.SLDPRT"
+                    className="span-2"
+                  >
+                    <input
+                      className="input mono"
+                      value={externalRef}
+                      maxLength={512}
+                      placeholder="PDM:VaultName:1234"
+                      onChange={(event) => setExternalRef(event.target.value)}
+                    />
+                  </Field>
+                  <Field label="Notes" hint="Internal note stored with this code." className="span-2">
+                    <textarea
+                      className="textarea"
+                      value={notes}
+                      maxLength={2000}
+                      rows={3}
+                      placeholder="Optional context for this code"
+                      onChange={(event) => setNotes(event.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label="Metadata (JSON)"
+                    hint='Optional JSON object, for example {"material": "S355"}.'
+                    error={linkError}
+                    className="span-2"
+                  >
+                    <textarea
+                      className="textarea mono"
+                      value={metadataText}
+                      rows={4}
+                      placeholder={'{\n  "material": "S355"\n}'}
+                      onChange={(event) => setMetadataText(event.target.value)}
+                    />
+                  </Field>
+                </div>
               </div>
             </>
           ) : null}

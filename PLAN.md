@@ -191,15 +191,15 @@ pdm-connector/
 | 2026-10-20 | 0–4 | Complete | MVP implemented end-to-end. `pytest` 13 passed, `ruff check` clean, `npm run build` clean, browser smoke test passed with no console errors. |
 | 2026-10-21 | 1.1 | Complete | PostgreSQL 17 migration cycle, 12-way counter concurrency, and Docker image build validated. Deployed on Debian 13 with the existing PostgreSQL container and Nginx; runtime and smoke tests passed. |
 | 2026-10-20 | 1.2 | Implemented | .NET PDM client, tests, CLI/simulator, net48 COM add-in, PowerShell installer. Add-in builds with zero warnings against PDM 2024 interop; live-vault test pending Windows/PDM. |
-| 2026-10-21 | 1.3 | Planned | Deployment exposed a web linkage gap: a generated code is already an item, but `source=web` items have no `external_ref` and the UI cannot set or edit one. |
+| 2026-10-21 | 1.3 | Complete | Added link/metadata fields to web generation, `PATCH /items/{id}`, registry editing, partial unique active-reference index, duplicate 409 handling, audit events, tests, and docs. |
 
 ---
 
-## 8. Next tranche — item linkage and metadata
+## 8. Phase 1.3 — item linkage and metadata (complete)
 
 **Roadmap phase:** 1.3 (replaces the previous ERP-first ordering; ERP moves to 1.4).
 
-**Current behaviour:** A generated part number is already an `items` row. There is no second "item" object to create or link to. The registry shows each code with `source=web` when it comes from the browser and `source=pdm` when it comes from the connector. The linking field is `external_ref`; the web Generate form does not expose it, so web-generated items currently have an empty external reference. PDM is not required to generate or store codes, but the PDM add-in is currently the only component that fills the link automatically (`PDM:<vault>:<file-id>`) and writes the code back to the data card.
+**Current behaviour:** A generated part number is already an `items` row. The registry shows each code with `source=web` when it comes from the browser and `source=pdm` when it comes from the connector. The linking field is `external_ref`; it can be set in the web Generate form or edited later in the registry with `PATCH /items/{id}`. PDM is not required to generate or store codes. The PDM add-in still fills the link automatically (`PDM:<vault>:<file-id>`) and writes the code back to the data card.
 
 | # | Task | Output |
 |---|---|---|
@@ -210,4 +210,6 @@ pdm-connector/
 | 1.3.5 | Duplicate and conflict handling | Reject duplicate active `external_ref` with a clear 409 error; allow reuse only after void. |
 | 1.3.6 | Verification and documentation | API/UI tests, RBAC tests, audit assertions, and a deployment/end-user explanation of manual linking. |
 
-**Exit criteria:** A code generated from the web can be linked to a PDM file or ERP object either at generation or afterwards, without deploying the PDM add-in. PDM remains the automatic, write-back path.
+**Exit criteria met:** A code generated from the web can be linked to a PDM file or ERP object either at generation or afterwards, without deploying the PDM add-in. PDM remains the automatic, write-back path.
+
+**Next:** Phase 1.4 — ERP adapters (REST/SOAP/file) and reconciliation jobs.

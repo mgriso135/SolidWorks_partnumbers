@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -114,6 +115,14 @@ class Item(Base):
         UniqueConstraint("tenant_id", "code", name="uq_items_tenant_code"),
         Index("ix_items_tenant_created", "tenant_id", "created_at"),
         Index("ix_items_tenant_external_ref", "tenant_id", "external_ref"),
+        Index(
+            "uq_items_tenant_external_ref_active",
+            "tenant_id",
+            "external_ref",
+            unique=True,
+            postgresql_where=text("external_ref IS NOT NULL AND status <> 'void'"),
+            sqlite_where=text("external_ref IS NOT NULL AND status <> 'void'"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)

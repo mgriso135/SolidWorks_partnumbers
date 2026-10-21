@@ -98,7 +98,8 @@ Multi-tenancy: every record is scoped by `tenant_id`. The MVP ships with one see
 - Commit a code with arbitrary metadata JSON (`material`, `description`, `size`, …).
 - Unique `(tenant_id, code)` constraint with retry on collision.
 - Status: `reserved`, `committed`, `void`.
-- External reference for PDM/ERP correlation.
+- External reference for PDM/ERP correlation, set at generation or edited later.
+- Item metadata and notes editable by admins/editors; the code string is immutable.
 - Search and filtering.
 
 ### 4.3 Integrations
@@ -228,8 +229,9 @@ Errors are structured: `{ "detail": { "code": "INVALID_INPUT", "message": "…",
   - unique `(tenant_id, key, version)`, index `(tenant_id, key, status)`
 - `counters(id, tenant_id, rule_key, scope_key, value, updated_at)`
   - unique `(tenant_id, rule_key, scope_key)`
-- `items(id, tenant_id, code, rule_id, rule_key, rule_version, status, source, payload_json, external_ref, created_by, created_at, voided_at)`
+- `items(id, tenant_id, code, rule_id, rule_key, rule_version, status, source, payload_json, external_ref, notes, created_by, created_at, voided_at)`
   - unique `(tenant_id, code)`
+  - partial unique index on `(tenant_id, external_ref)` where the reference is not null and the item is not void
 - `api_keys(id, tenant_id, name, prefix, key_hash, last_used_at, revoked_at, created_at)`
 - `audit_log(id, tenant_id, actor_id, actor_type, action, entity_type, entity_id, details_json, ip, created_at)`
 
@@ -245,7 +247,7 @@ DO UPDATE SET value = counters.value + :step, updated_at = :now
 RETURNING value;
 ```
 
-The unique constraint on `(tenant_id, code)` is the final guard; collisions retry with the next counter value (bounded).
+The unique constraint on `(tenant_id, code)` is the final guard; collisions retry with the next counter value (bounded). A partial unique index prevents two active items from sharing an external reference while still allowing reuse after void.
 
 ---
 
@@ -302,14 +304,14 @@ GET  /api/integrations/pdm/…    with header `X-API-Key: pk_live_…`
 
 ## 10. Roadmap beyond the MVP
 
-Phase 1.1 (PostgreSQL, Docker Compose, Alembic) is deployed and phase 1.2 (PDM add-in, shared client, installer) is implemented in this repository. The PDM add-in is compile-verified against the PDM 2024 interop and still requires a Windows pilot against a real vault. Phase 1.3 is the next planned tranche: web-side item linkage so codes can be attached to PDM/ERP references without deploying the add-in.
+Phase 1.1 (PostgreSQL, Docker Compose, Alembic) is deployed and phase 1.2 (PDM add-in, shared client, installer) is implemented in this repository. The PDM add-in is compile-verified against the PDM 2024 interop and still requires a Windows pilot against a real vault. Phase 1.3 (web-side item linkage and metadata editing) is implemented; codes can be attached to PDM/ERP references without deploying the add-in.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1.1 | PostgreSQL deployment, Docker Compose, migrations (Alembic). | Complete; deployed on Debian 13 with Docker and existing PostgreSQL |
 | 1.2 | Real SolidWorks PDM add-in (.NET, COM) + installer. | Implemented; build-verified, live vault pending |
-| 1.3 | Item linkage and metadata: external references, notes, edit-after-generation. | Next |
-| 1.4 | ERP adapters (REST/SOAP/file), reconciliation jobs. | Planned |
+| 1.3 | Item linkage and metadata: external references, notes, edit-after-generation. | Complete |
+| 1.4 | ERP adapters (REST/SOAP/file), reconciliation jobs. | Next |
 | 1.5 | Rule templates, import/export, bulk re-coding. | Planned |
 | 1.6 | SSO (OIDC/SAML), SCIM, granular permissions. | Planned |
 | 1.7 | Notifications, webhooks, approval workflow for rule changes. | Planned |

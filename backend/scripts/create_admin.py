@@ -18,12 +18,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import select  # noqa: E402
-from sqlalchemy.exc import OperationalError  # noqa: E402
-
 from app.db import SessionLocal  # noqa: E402
 from app.models import Tenant, User  # noqa: E402
 from app.security import hash_password  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,8 +92,7 @@ def main() -> int:
             db.commit()
     except OperationalError as exc:
         print(
-            "Database tables are missing or unreachable. Run `alembic upgrade head` first.\n"
-            f"{exc}",
+            f"Database tables are missing or unreachable. Run `alembic upgrade head` first.\n{exc}",
             file=sys.stderr,
         )
         return 1

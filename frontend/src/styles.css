@@ -83,6 +83,10 @@ p {
   white-space: nowrap;
 }
 
+.pre-wrap {
+  white-space: pre-wrap;
+}
+
 .break-all {
   word-break: break-all;
 }
@@ -1058,6 +1062,12 @@ p {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+.form-section {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
 
 .span-2 {

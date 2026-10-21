@@ -22,7 +22,7 @@ Your administrator assigns one of these roles:
 | Role | What you can do |
 |---|---|
 | **Viewer** | View rules, generate codes, search the code registry, and view the dashboard. |
-| **Editor** | Everything a viewer can do, plus create/edit/archive rules, void codes, and read the audit log. |
+| **Editor** | Everything a viewer can do, plus create/edit/archive rules, edit code links and metadata, void codes, and read the audit log. |
 | **Admin** | Everything an editor can do, plus manage users and API keys. |
 
 If a menu item is missing, your role does not include that function.
@@ -173,12 +173,19 @@ This is the normal workflow for an engineer creating a new item.
    - **Text fields** are typed. The hint shows the allowed length or, for
      patterned fields, the required format.
    - Optional fields can be left empty.
-4. Watch the **Preview** panel. It updates automatically when all required
+4. Optionally fill **Link and metadata**:
+   - **External reference** links the code to a PDM file or ERP object. Leave
+     it empty for a standalone code. An active reference can belong to only one
+     item.
+   - **Notes** stores a short internal note with the item.
+   - **Metadata (JSON)** adds attributes such as material, description, or
+     supplier. It must be a JSON object.
+5. Watch the **Preview** panel. It updates automatically when all required
    fields are valid. Each piece of the proposed code is shown as a separate
    chip.
-5. Check that the proposed code is correct, then select
+6. Check that the proposed code is correct, then select
    **Generate & reserve**.
-6. The success panel shows the final code. Use **Copy** for the code, **Open
+7. The success panel shows the final code. Use **Copy** for the code, **Open
    registry** to see the saved record, or **New code** to start another.
 
 Important:
@@ -191,6 +198,10 @@ Important:
   Validation happens again on the server when you generate.
 - If the generated code would exceed the rule's maximum length, shorten the
   text field or ask an administrator to review the rule.
+- If the external reference is already used by an active item, the server
+  returns a duplicate-reference error showing the existing code. Void the old
+  item first only if you really intend to move the link.
+- Rule fields take precedence over metadata with the same key.
 
 ---
 
@@ -208,8 +219,8 @@ The detail panel shows:
 - The code and its status.
 - The rule key and the exact rule version used.
 - The source (`web`, `pdm`, or another integration label).
-- The creation date and external reference.
-- The attributes stored with the code, such as family, description, or material.
+- The creation date, external reference, and notes.
+- The metadata stored with the code, such as family, description, or material.
 
 Use **Copy code** to put the code on the clipboard.
 
@@ -221,11 +232,28 @@ column shows where the code came from (`web` for the browser, `pdm` for the
 add-in), and the **external reference** column is the link to a PDM file or ERP
 object.
 
-The web Generate form does not currently let you set an external reference, so
-web-generated codes show `—` in that column. The PDM add-in fills it
-automatically as `PDM:<vault>:<file-id>` and writes the code back to the data
-card. Linking a code from the web, or editing the link later, is planned for the
-next development phase.
+You can set the external reference while generating a code, or edit it later in
+the registry. The PDM add-in fills it automatically as
+`PDM:<vault>:<file-id>` and writes the code back to the data card. Web linking
+does not write anything to PDM; it only records the association in PartCode.
+
+### Edit a link or metadata
+
+Editors and admins can change the link after generation.
+
+1. Open the code in **Code registry**.
+2. Select **Edit link**.
+3. Change the external reference, notes, or metadata.
+4. Select **Save changes**.
+
+The code and rule version stay immutable. Leaving the external reference empty
+removes the link. A duplicate active reference is rejected with a `409` error.
+To move a reference to another item, void the old item first, then save the new
+one.
+
+**Metadata (JSON)** replaces the item's metadata payload, including attributes
+captured from the rule. Review the JSON before saving. Every edit is recorded in
+the audit log as **Code updated**.
 
 ### Voiding a code
 
@@ -315,8 +343,8 @@ Editors and admins can open **Audit log**.
 
 - Filter by action or entity type.
 - Select an event to see the actor, entity, IP address, timestamp, and details.
-- Sign-ins, code generation, rule changes, user changes, API-key changes, and
-  voiding are recorded.
+- Sign-ins, code generation, code link/metadata updates, rule changes, user
+  changes, API-key changes, and voiding are recorded.
 
 Use the audit log to answer questions such as "who created this code?" or "when
 did this rule change?". Viewers do not have access to the audit log.
@@ -432,8 +460,8 @@ to the bracket's PDM file ID.
 - It does not create data-card variables; the target must already exist.
 - It does not rename files, create BOMs, or change workflow state.
 - It does not check files in or out automatically.
-- It does not edit an existing item or re-link an already-numbered file. That is
-  planned for the web linkage work in phase 1.3.
+- It does not edit or re-link an already-numbered file. Use the web **Code
+  registry** to change the external reference or metadata.
 
 ### 10.4 What PartCode reads and writes
 
@@ -546,16 +574,22 @@ It shows where the code came from. `web` means the browser application; `pdm`
 means an integration through an API key.
 
 **How do I link a generated code to a PDM file?**
-Select exactly one file in the vault and run **PartCode: assign code...**.
-The first successful reserve writes the code to the data card and records
-`PDM:<vault>:<file-id>` as the external reference. See section 10. Without PDM,
-the current web UI cannot set that link; support for linking and editing it from
-the web is planned for phase 1.3.
+There are two ways:
+
+- Select exactly one file in the vault and run **PartCode: assign code...**.
+  The first successful reserve writes the code to the data card and records
+  `PDM:<vault>:<file-id>` as the external reference.
+- Generate or edit the code in the web app and enter the same
+  `PDM:<vault>:<file-id>` value under **External reference**.
+
+See sections 5, 6, and 10. Web linking records the association in PartCode; it
+does not write the code into the PDM data card.
 
 **The data card already has a PartNumber. Can I link it to an existing item?**
-Not with the current add-in. The add-in only assigns a new code, and PartCode
-rejects a second active code for the same PDM file ID. Search the registry or
-ask an administrator; do not create a duplicate.
+The add-in does not adopt an existing number. If the code already exists in
+PartCode, search the registry and use **Edit link** to attach the PDM file ID.
+PartCode rejects a second active code for the same file ID, so do not create a
+duplicate.
 
 **Can I assign codes to several files at once?**
 No. The add-in accepts one selected file per run and does not scan folders or

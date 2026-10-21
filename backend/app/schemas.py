@@ -202,6 +202,12 @@ class GenerateOut(BaseModel):
     created_at: datetime | None = None
 
 
+class ItemUpdate(BaseModel):
+    external_ref: str | None = Field(default=None, max_length=512)
+    notes: str | None = Field(default=None, max_length=2000)
+    metadata: dict[str, Any] | None = None
+
+
 class ItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -60,6 +60,7 @@ export function humanAction(action: string): string {
     "rule.created": "Rule created",
     "rule.updated": "Rule updated",
     "rule.archived": "Rule archived",
+    "item.updated": "Code updated",
     "item.voided": "Code voided",
     "user.created": "User created",
     "user.updated": "User updated",

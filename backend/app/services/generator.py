@@ -214,6 +214,47 @@ def preview_code(db: Session, *, tenant_id: str, rule: Rule, request: GenerateRe
     return rendered
 
 
+def normalize_external_ref(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def ensure_external_ref_available(
+    db: Session,
+    *,
+    tenant_id: str,
+    external_ref: str | None,
+    exclude_item_id: str | None = None,
+) -> None:
+    normalized = normalize_external_ref(external_ref)
+    if not normalized:
+        return
+    query = select(Item).where(
+        Item.tenant_id == tenant_id,
+        Item.external_ref == normalized,
+        Item.status != "void",
+    )
+    if exclude_item_id is not None:
+        query = query.where(Item.id != exclude_item_id)
+    duplicate = db.scalar(query)
+    if duplicate is not None:
+        raise GenerationError(
+            "DUPLICATE_EXTERNAL_REF",
+            (
+                "An item already exists for this external reference: "
+                f"{normalized} (code {duplicate.code})"
+            ),
+            fields={
+                "external_ref": normalized,
+                "code": duplicate.code,
+                "item_id": duplicate.id,
+            },
+            status_code=409,
+        )
+
+
 def commit_code(
     db: Session,
     *,
@@ -224,22 +265,12 @@ def commit_code(
 ) -> tuple[Item, list[dict[str, Any]]]:
     definition = RuleDefinition.model_validate(rule.definition)
     normalized = validate_values(definition, request.values)
-
-    if request.external_ref:
-        duplicate = db.scalar(
-            select(Item).where(
-                Item.tenant_id == tenant_id,
-                Item.external_ref == request.external_ref,
-                Item.status != "void",
-            )
-        )
-        if duplicate is not None:
-            raise GenerationError(
-                "DUPLICATE_EXTERNAL_REF",
-                f"An item already exists for this external reference: {duplicate.code}",
-                fields={"code": duplicate.code, "item_id": duplicate.id},
-                status_code=409,
-            )
+    external_ref = normalize_external_ref(request.external_ref)
+    ensure_external_ref_available(
+        db,
+        tenant_id=tenant_id,
+        external_ref=external_ref,
+    )
 
     last_error: Exception | None = None
     for _attempt in range(5):
@@ -271,7 +302,7 @@ def commit_code(
                 status="reserved",
                 source=request.source,
                 payload=payload,
-                external_ref=request.external_ref,
+                external_ref=external_ref,
                 notes=request.notes,
                 created_by=created_by,
             )
@@ -282,6 +313,12 @@ def commit_code(
         except IntegrityError as exc:
             last_error = exc
             db.rollback()
+            if external_ref:
+                ensure_external_ref_available(
+                    db,
+                    tenant_id=tenant_id,
+                    external_ref=external_ref,
+                )
             continue
 
     raise GenerationError(

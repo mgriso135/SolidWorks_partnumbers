@@ -18,6 +18,7 @@ const ACTIONS = [
   "rule.created",
   "rule.updated",
   "rule.archived",
+  "item.updated",
   "item.voided",
   "user.created",
   "user.updated",

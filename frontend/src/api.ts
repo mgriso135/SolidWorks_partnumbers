@@ -8,6 +8,7 @@ import type {
   GenerateResult,
   Item,
   ItemPage,
+  ItemUpdate,
   LookupResult,
   Rule,
   RuleInput,
@@ -137,6 +138,11 @@ export const api = {
   getItem: (id: string) => request<Item>(`/items/${id}`),
   lookupItem: (code: string) =>
     request<Item>(`/items/lookup?code=${encodeURIComponent(code)}`),
+  updateItem: (id: string, payload: ItemUpdate) =>
+    request<Item>(`/items/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   voidItem: (id: string) => request<Item>(`/items/${id}/void`, { method: "POST" }),
 
   stats: () => request<DashboardStats>("/admin/stats"),

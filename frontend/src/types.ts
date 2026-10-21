@@ -162,6 +162,12 @@ export interface Item {
   voided_at: string | null;
 }
 
+export interface ItemUpdate {
+  external_ref?: string | null;
+  notes?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface ItemPage {
   items: Item[];
   total: number;

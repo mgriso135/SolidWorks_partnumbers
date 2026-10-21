@@ -171,6 +171,7 @@ All endpoints are under `/api`. Human endpoints use `Authorization: Bearer <toke
 | `GET` | `/items` | any user | Search the registry. |
 | `GET` | `/items/{id}` | any user | Code detail. |
 | `GET` | `/items/lookup?code=…` | any user | Lookup by code. |
+| `PATCH` | `/items/{id}` | editor | Edit external reference, notes, or metadata. |
 | `POST` | `/items/{id}/void` | editor | Void a code. |
 | `GET` | `/admin/users` | admin | Users. |
 | `POST` | `/admin/users` | admin | Create a user. |
@@ -217,7 +218,20 @@ curl -s http://127.0.0.1:8000/api/integrations/pdm/reserve \
 
 The response includes `code`, `rule_version`, `item_id`, and the rendered `segments`. A connector should store `item_id`/`code` in the PDM data card and use `external_ref` for idempotent ERP reconciliation.
 
-Each generated code is itself an item in the registry; there is no separate part record to create. `source` records where it came from (`web` or `pdm`), and `external_ref` is the link to a PDM/ERP object. The web Generate form does not currently send `external_ref`, so web-generated items show an empty external reference. PDM is optional for generating codes, but it is currently the only component that fills this link automatically.
+Each generated code is itself an item in the registry; there is no separate part record to create. `source` records where it came from (`web` or `pdm`), and `external_ref` is the link to a PDM/ERP object. Web users can set the link while generating or edit it later:
+
+```bash
+curl -s -X PATCH http://127.0.0.1:8000/api/items/<item_id> \
+  -H "Authorization: Bearer <token>" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "external_ref": "PDM:SandboxVault:1001",
+    "notes": "Linked from the registry",
+    "metadata": {"material": "S355", "description": "Bracket"}
+  }'
+```
+
+PDM remains the automatic write-back path, but linking no longer requires the add-in. An external reference is unique across active items; void the old item before reusing its reference.
 
 ## Development
 
