@@ -61,6 +61,7 @@ export function humanAction(action: string): string {
     "rule.updated": "Rule updated",
     "rule.archived": "Rule archived",
     "item.updated": "Code updated",
+    "item.committed": "Code committed",
     "item.voided": "Code voided",
     "user.created": "User created",
     "user.updated": "User updated",

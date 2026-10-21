@@ -23,6 +23,14 @@ services:
       AUTO_CREATE_TABLES: "false"
       ENVIRONMENT: production
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:7000,http://127.0.0.1:7000}
+      ERP_ADAPTER: ${ERP_ADAPTER:-stub}
+      ERP_FILE_PATH: ${ERP_FILE_PATH:-}
+      ERP_BASE_URL: ${ERP_BASE_URL:-}
+      ERP_LOOKUP_PATH: "${ERP_LOOKUP_PATH:-/items/{code}}"
+      ERP_API_KEY: ${ERP_API_KEY:-}
+      ERP_API_KEY_HEADER: ${ERP_API_KEY_HEADER:-Authorization}
+      ERP_API_KEY_PREFIX: "${ERP_API_KEY_PREFIX:-Bearer }"
+      ERP_TIMEOUT_SECONDS: ${ERP_TIMEOUT_SECONDS:-10}
     ports:
       - "7000:8000"
     depends_on:

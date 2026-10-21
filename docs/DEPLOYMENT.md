@@ -123,7 +123,7 @@ export JWT_SECRET="$(openssl rand -hex 48)"
 Do not re-run the two `openssl` commands after the deployment: they would
 replace the database password and the JWT signing key. If you reconnect in a new
 shell, retrieve the existing values from your secret store; the JWT secret and
-database password are also present in `/opt/partcode/.env.production` once that
+database password are also present in `/home/matteo/apps-production/partcode/.env.production` once that
 file is created. Do not echo either secret into logs or terminal transcripts.
 
 ### 2.3 Public internet or local network
@@ -172,7 +172,8 @@ Read these before exposing the service:
   default. Restrict them at the proxy if your policy requires it.
 - The JWT is stored in browser `localStorage`. Use HTTPS, restrict who can
   modify served frontend assets, and treat any XSS as a credential-theft risk.
-- The ERP endpoint is a stub. The SOLIDWORKS PDM add-in is compile-verified but
+- ERP lookup/reconciliation is read-only (stub, file, or REST). There is no ERP
+  write-back in this version. The SOLIDWORKS PDM add-in is compile-verified but
   still requires a pilot on a real Windows vault.
 - This is a single-tenant pilot deployment. The data model supports tenants,
   but no tenant-management UI is included.
@@ -390,7 +391,7 @@ rsync -av \
   --exclude='frontend/dist' \
   --exclude='bin/' \
   --exclude='obj/' \
-  ./ deploy@SERVER:/opt/partcode/
+  ./ deploy@SERVER:/home/matteo/apps-production/partcode/
 ```
 
 Alternatively, clone the repository directly on the server into
@@ -425,9 +426,17 @@ CORS_ORIGINS=${BASE_URL}
 SEED_DEMO=false
 AUTO_CREATE_TABLES=false
 ENVIRONMENT=production
+# ERP is read-only. Keep stub until the ERP contract is validated.
+ERP_ADAPTER=stub
+# ERP_FILE_PATH=/data/erp-items.json
+# ERP_BASE_URL=https://erp.example/api
+# ERP_LOOKUP_PATH=/items/{code}
+# ERP_API_KEY=change-me
+# ERP_API_KEY_HEADER=Authorization
+# ERP_TIMEOUT_SECONDS=10
 EOF
 )
-chmod 600 /opt/partcode/.env.production
+chmod 600 /home/matteo/apps-production/partcode/.env.production
 ```
 
 Notes:
@@ -453,6 +462,37 @@ Notes:
   this file, recreate the container with the `docker rm`/`docker run` commands
   in section 7; `docker restart` alone does not reload the environment.
 
+### 6.1 Optional ERP adapter
+
+The default `ERP_ADAPTER=stub` reports every code as not found. To validate ERP
+connectivity without changing PartCode code:
+
+- `ERP_ADAPTER=file` reads a JSON/CSV snapshot from `ERP_FILE_PATH`. The file
+  must exist **inside the container**; add a read-only volume such as
+  `-v /srv/partcode/erp-items.json:/data/erp-items.json:ro` and set
+  `ERP_FILE_PATH=/data/erp-items.json`.
+- `ERP_ADAPTER=rest` sends `GET {ERP_BASE_URL}{ERP_LOOKUP_PATH}` with an optional
+  API key. A `404` means "not found"; other HTTP/transport errors are reported
+  as `502`. The container needs outbound network access to the ERP.
+- `ERP_LOOKUP_PATH` must contain `{code}`. The default is `/items/{code}`.
+- `item.committed` audit events are written only when a `reserved` item is found
+  in ERP and the reconciliation is not a dry run.
+
+Validate lookup and a dry run before enabling a live reconciliation:
+
+```bash
+curl -s "https://partcode.example/api/integrations/erp/lookup?code=PRT-MEC-00001" \
+  -H "X-API-Key: $PARTCODE_API_KEY"
+
+curl -s -X POST https://partcode.example/api/integrations/erp/reconcile \
+  -H "X-API-Key: $PARTCODE_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"dry_run": true, "limit": 100}'
+```
+
+Recreate the container after changing ERP variables. The endpoints use the
+`X-API-Key` header, not a browser JWT.
+
 ---
 
 ## 7. Build and start PartCode
@@ -460,7 +500,7 @@ Notes:
 Build the image on the server:
 
 ```bash
-cd /opt/partcode
+cd /home/matteo/apps-production/partcode
 sudo docker build --no-cache -t partcode:1.0.0 .
 ```
 
@@ -1044,7 +1084,7 @@ echo '30 2 * * * /usr/local/sbin/partcode-backup >> /var/log/partcode-backup.log
 sudo chmod 644 /etc/cron.d/partcode-backup
 ```
 
-Also back up `/opt/partcode/.env.production` and `/etc/partcode-backup.env` in a
+Also back up `/home/matteo/apps-production/partcode/.env.production` and `/etc/partcode-backup.env` in a
 secure secret store. They are required to restore the service and decrypt
 access to the database. Backups contain personal data and API-key hashes; store
 and transfer them encrypted. Copy backups off the server regularly.
@@ -1100,12 +1140,12 @@ startup, so a failed migration can stop the service.
 
 1. Announce a short maintenance window.
 2. Take a database backup and copy it off the server.
-3. Copy the new source into `/opt/partcode`.
+3. Copy the new source into `/home/matteo/apps-production/partcode`.
 4. Build a new image with a new tag:
 
    ```bash
-   cd /opt/partcode
-   sudo docker build -t partcode:1.1.0 .
+   cd /home/matteo/apps-production/partcode
+   sudo docker build --no-cache -t partcode:1.1.0 .
    ```
 
 5. Stop and remove the old container. Its data is in PostgreSQL, not in the
@@ -1123,7 +1163,7 @@ startup, so a failed migration can stop the service.
      --name partcode \
      --restart unless-stopped \
      --network "$PG_NETWORK" \
-     --env-file /opt/partcode/.env.production \
+     --env-file /home/matteo/apps-production/partcode/.env.production \
      -p 127.0.0.1:7001:8000 \
      partcode:1.1.0
    ```
@@ -1156,7 +1196,7 @@ sudo docker run -d \
   --name partcode \
   --restart unless-stopped \
   --network "$PG_NETWORK" \
-  --env-file /opt/partcode/.env.production \
+  --env-file /home/matteo/apps-production/partcode/.env.production \
   -p 127.0.0.1:7001:8000 \
   partcode:1.0.0
 ```
@@ -1287,7 +1327,7 @@ Use this as a final sign-off list:
 - [ ] PostgreSQL container identified and on the existing user-defined `$PG_NETWORK` network.
 - [ ] Dedicated `partcode` role and database created.
 - [ ] Connectivity test from a container succeeds.
-- [ ] Repository copied to `/opt/partcode` without local `.env` or SQLite files.
+- [ ] Repository copied to `/home/matteo/apps-production/partcode` without local `.env` or SQLite files.
 - [ ] `.env.production` created with mode `600`, strong secrets, `SEED_DEMO=false`,
       and `AUTO_CREATE_TABLES=false`.
 - [ ] Image built and container running with `--restart unless-stopped`.
@@ -1312,7 +1352,7 @@ and its own PostgreSQL 17 container. This does **not** use the existing
 PostgreSQL container and should not be used for the same production data.
 
 ```bash
-cd /opt/partcode
+cd /home/matteo/apps-production/partcode
 cp .env.example .env
 ```
 

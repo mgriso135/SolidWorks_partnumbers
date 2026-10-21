@@ -157,7 +157,7 @@ used.
 |---|---|
 | **Reserved** | The number has been allocated to an item and is saved in the registry. This is the status produced by the web application and the PDM add-in. |
 | **Void** | The code is kept for history and audit but must not be used. An editor or admin can void a reserved code. |
-| **Committed** | A status reserved for ERP reconciliation. The current web application does not set it automatically. |
+| **Committed** | The code was found in ERP during reconciliation. This is set by the ERP integration, not manually in the web UI. |
 
 ---
 
@@ -380,6 +380,10 @@ The list shows only the key prefix, creation date, last use, and status. To
 rotate a key, create a new one, update the connector, then revoke the old key.
 Revocation takes effect immediately: connectors using the old key receive
 `401 Unauthorized`.
+
+The same API key can call the ERP lookup and reconciliation endpoints. A
+reconciliation dry run previews which reserved codes exist in ERP; a real run
+marks them **Committed**. The web UI does not yet expose these ERP actions.
 
 Never send an API key by email, paste it into source control, or use it as a
 user password.

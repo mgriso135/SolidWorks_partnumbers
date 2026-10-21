@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SegmentBase(BaseModel):
@@ -237,6 +237,55 @@ class ItemPage(BaseModel):
 class LookupOut(BaseModel):
     exists: bool
     item: ItemOut | None = None
+
+
+class ErpLookupOut(BaseModel):
+    found: bool
+    code: str
+    adapter: str
+    external_id: str | None = None
+    status: str | None = None
+    description: str | None = None
+    message: str | None = None
+
+
+class ErpReconcileRequest(BaseModel):
+    codes: list[str] | None = Field(default=None, max_length=200)
+    limit: int = Field(default=100, ge=1, le=200)
+    dry_run: bool = False
+
+    @field_validator("codes")
+    @classmethod
+    def normalize_codes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        codes = list(dict.fromkeys(code.strip() for code in value if code.strip()))
+        if not codes:
+            raise ValueError("codes must contain at least one non-empty code")
+        return codes
+
+
+class ErpReconcileResult(BaseModel):
+    item_id: str
+    code: str
+    partcode_status: str
+    erp_found: bool
+    erp_status: str | None = None
+    external_id: str | None = None
+    action: Literal["matched", "committed", "would_commit", "missing", "error"]
+    error: str | None = None
+
+
+class ErpReconcileOut(BaseModel):
+    adapter: str
+    checked: int
+    found: int
+    not_found: int
+    committed: int
+    would_commit: int
+    errors: int
+    dry_run: bool
+    results: list[ErpReconcileResult]
 
 
 class UserCreate(BaseModel):

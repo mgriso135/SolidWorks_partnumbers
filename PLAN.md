@@ -192,6 +192,7 @@ pdm-connector/
 | 2026-10-21 | 1.1 | Complete | PostgreSQL 17 migration cycle, 12-way counter concurrency, and Docker image build validated. Deployed on Debian 13 with the existing PostgreSQL container and Nginx; runtime and smoke tests passed. |
 | 2026-10-20 | 1.2 | Implemented | .NET PDM client, tests, CLI/simulator, net48 COM add-in, PowerShell installer. Add-in builds with zero warnings against PDM 2024 interop; live-vault test pending Windows/PDM. |
 | 2026-10-21 | 1.3 | Complete | Added link/metadata fields to web generation, `PATCH /items/{id}`, registry editing, partial unique active-reference index, duplicate 409 handling, audit events, tests, and docs. |
+| 2026-10-21 | 1.4 | Core complete | Added stub/file/REST ERP adapters, lookup and reconciliation endpoints, `reserved → committed` status handling, `item.committed` audit, configuration, tests, and documentation. `pytest` 20 passed; Ruff and frontend build clean. SOAP/vendor-specific adapters and ERP writes remain pending. |
 
 ---
 
@@ -213,3 +214,24 @@ pdm-connector/
 **Exit criteria met:** A code generated from the web can be linked to a PDM file or ERP object either at generation or afterwards, without deploying the PDM add-in. PDM remains the automatic, write-back path.
 
 **Next:** Phase 1.4 — ERP adapters (REST/SOAP/file) and reconciliation jobs.
+
+---
+
+## 9. Phase 1.4 — ERP adapters and reconciliation (core complete)
+
+**Roadmap phase:** 1.4. The generic read-only adapter layer and reconciliation job are implemented; SOAP and vendor-specific ERP adapters remain pending until a real ERP contract is available.
+
+**Current behaviour:** `ERP_ADAPTER` selects `stub`, `file` (JSON/CSV snapshot), or `rest` (generic JSON-over-HTTP). `GET /api/integrations/erp/lookup` queries the adapter. `POST /api/integrations/erp/reconcile` checks non-void items, moves `reserved` items found in ERP to `committed`, leaves missing items unchanged, and writes an `item.committed` audit event. `dry_run` previews changes without writing.
+
+| # | Task | Output |
+|---|---|---|
+| 1.4.1 | Adapter interface | `lookup`, derived `exists`, optional `propose_item`; typed `ErpItem` and configuration/transport errors. |
+| 1.4.2 | Shipped adapters | Stub, read-only JSON/CSV file, and generic REST with path/header/timeout configuration. |
+| 1.4.3 | ERP lookup API | API-key endpoint with 404-as-not-found handling and structured `502`/`503` errors. |
+| 1.4.4 | Reconciliation | Optional code filter, limit, `dry_run`, per-item results, and `reserved → committed` transitions. |
+| 1.4.5 | Audit and RBAC | API-key-only access; `item.committed` audit events; no ERP writes exposed. |
+| 1.4.6 | Verification and docs | Adapter/API/reconciliation tests, configuration examples, deployment notes, and end-user status guidance. |
+
+**Exit criteria met (core):** An operator can point PartCode at an ERP snapshot or generic REST endpoint, verify a code, and reconcile reserved items without allowing PartCode to overwrite ERP data.
+
+**Next:** Phase 1.5, or a vendor-specific/SOAP ERP adapter once the customer's ERP API and item contract are confirmed.

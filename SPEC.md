@@ -106,7 +106,7 @@ Multi-tenancy: every record is scoped by `tenant_id`. The MVP ships with one see
 - REST API for all operations.
 - API-key authentication for machine clients (`X-API-Key`).
 - PDM connector simulation endpoint: reserve/lookup/validate.
-- ERP lookup interface with a local stub (production adapter to be implemented per ERP).
+- ERP lookup and reconciliation interface with stub, file-snapshot, and generic REST adapters.
 - Signed-in web UI for humans.
 
 ### 4.4 Administration
@@ -117,7 +117,7 @@ Multi-tenancy: every record is scoped by `tenant_id`. The MVP ships with one see
 
 ### 4.5 Explicitly out of scope for the MVP
 - A native SolidWorks PDM add-in was outside the MVP build. It is now implemented as phase 1.2 in `pdm-connector/`: a .NET Framework 4.8 COM add-in plus installer. Live-vault validation still requires Windows and SOLIDWORKS PDM Professional.
-- Real ERP adapters (SAP, Teamcenter, etc.).
+- Vendor-specific ERP connectors (SAP, Teamcenter, etc.) and ERP write-back. Generic read-only REST/file adapters are included.
 - Full BOM management, workflow engine, supplier portal.
 - Billing, email notifications, SSO.
 - Horizontal scaling and HA deployment automation.
@@ -206,7 +206,7 @@ Errors are structured: `{ "detail": { "code": "INVALID_INPUT", "message": "…",
 └─────────────────────────────────────────────────────┘
                            │ adapter interface
                            ▼
-                    ERP lookup stub
+                 ERP adapter (stub/file/REST)
 ```
 
 ### 6.1 Technology choices
@@ -277,9 +277,12 @@ The connector never computes codes locally; it only renders and submits.
 The phase 1.2 implementation reads data-card variables, loads active rules, previews/reserves through the API-key endpoints, and writes the returned code to a configurable PDM variable. See `pdm-connector/README.md` for the build, installer, DPAPI key handling, and the remaining live-vault validation steps.
 
 ### 8.2 ERP adapter
-- MVP ships an interface plus an in-memory/stub adapter.
-- A production adapter must implement `lookup(code)` and `exists(code)`; optional `propose_item(payload)`.
-- ERP remains authoritative; PartCode never silently overwrites ERP data.
+- Adapter interface: `lookup(code)` is required; `exists(code)` is derived from it; `propose_item(payload)` is optional.
+- Shipped adapters: `stub` (no data), `file` (read-only JSON/CSV snapshot), and `rest` (generic JSON-over-HTTP).
+- REST lookup: `GET {ERP_BASE_URL}{ERP_LOOKUP_PATH}` with `{code}` URL-encoded. `404` means not found; a JSON object may contain `code`, `id`/`external_id`, `status`, `description`, or `{"found": false}`. Other HTTP or transport failures are reported as adapter errors.
+- `GET /api/integrations/erp/lookup?code=…` exposes lookup to API-key clients.
+- `POST /api/integrations/erp/reconcile` accepts optional `codes`, `limit` (1–200), and `dry_run`. Non-void items found in ERP move from `reserved` to `committed`; missing items are reported without changing status. Each commit writes an `item.committed` audit event.
+- ERP remains authoritative; PartCode never silently overwrites ERP data. `propose_item` exists in the interface but is not exposed as a write endpoint in this phase.
 
 ### 8.3 API key flow
 ```
@@ -304,14 +307,14 @@ GET  /api/integrations/pdm/…    with header `X-API-Key: pk_live_…`
 
 ## 10. Roadmap beyond the MVP
 
-Phase 1.1 (PostgreSQL, Docker Compose, Alembic) is deployed and phase 1.2 (PDM add-in, shared client, installer) is implemented in this repository. The PDM add-in is compile-verified against the PDM 2024 interop and still requires a Windows pilot against a real vault. Phase 1.3 (web-side item linkage and metadata editing) is implemented; codes can be attached to PDM/ERP references without deploying the add-in.
+Phase 1.1 (PostgreSQL, Docker Compose, Alembic) is deployed and phase 1.2 (PDM add-in, shared client, installer) is implemented in this repository. The PDM add-in is compile-verified against the PDM 2024 interop and still requires a Windows pilot against a real vault. Phase 1.3 (web-side item linkage and metadata editing) is implemented; codes can be attached to PDM/ERP references without deploying the add-in. Phase 1.4 core is implemented with stub, file, and REST adapters plus reconciliation; SOAP and vendor-specific ERP connectors remain pending.
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1.1 | PostgreSQL deployment, Docker Compose, migrations (Alembic). | Complete; deployed on Debian 13 with Docker and existing PostgreSQL |
 | 1.2 | Real SolidWorks PDM add-in (.NET, COM) + installer. | Implemented; build-verified, live vault pending |
 | 1.3 | Item linkage and metadata: external references, notes, edit-after-generation. | Complete |
-| 1.4 | ERP adapters (REST/SOAP/file), reconciliation jobs. | Next |
+| 1.4 | ERP adapters (REST/SOAP/file), reconciliation jobs. | Core complete (stub/file/REST + reconciliation); SOAP/vendor-specific pending |
 | 1.5 | Rule templates, import/export, bulk re-coding. | Planned |
 | 1.6 | SSO (OIDC/SAML), SCIM, granular permissions. | Planned |
 | 1.7 | Notifications, webhooks, approval workflow for rule changes. | Planned |

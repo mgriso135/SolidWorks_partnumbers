@@ -16,13 +16,13 @@ The requirements behind the product are in [`REQUIREMENTS.md`](REQUIREMENTS.md),
 - **Code registry** — server-side generation, preview without consuming a number, atomic counters, duplicate protection, voiding, external references, metadata.
 - **Web application** — login, dashboard, guided generator, rule editor with live preview, code registry, audit log, users and API keys.
 - **REST API** — JWT for people, `X-API-Key` for machines, OpenAPI at `/docs`.
-- **PDM contract** — list rules, preview, reserve, lookup, validate; plus an ERP lookup stub.
+- **PDM contract** — list rules, preview, reserve, lookup, validate; plus configurable ERP lookup and reconciliation adapters.
 - **SolidWorks PDM connector** — a .NET Framework 4.8 COM add-in, shared typed client, CLI/simulator, and installer in `pdm-connector/`.
 - **PDM sandbox** — a fake vault/data card and browser test UI that sends the same HTTP requests as the add-in, for testing without a Windows PDM environment.
 - **Multi-tenant data model** with audit trail on every mutation.
-- **Tests** — API, RBAC, rule versioning, generation, scoped counters, concurrency, and the API-key flow.
+- **Tests** — API, RBAC, rule versioning, generation, scoped counters, concurrency, ERP adapters/reconciliation, and the API-key flow.
 
-The PDM add-in compiles against the PDM 2024 interop but still requires pilot validation on a Windows vault. Real ERP adapters, BOM/workflow, SSO, and billing remain out of scope. See `SPEC.md` §4.5 and `pdm-connector/README.md`.
+The PDM add-in compiles against the PDM 2024 interop but still requires pilot validation on a Windows vault. Generic read-only ERP adapters (stub, file snapshot, REST) are included; vendor-specific SAP/Teamcenter connectors, ERP writes, BOM/workflow, SSO, and billing remain out of scope. See `SPEC.md` §4.5 and `pdm-connector/README.md`.
 
 ## Quick start
 
@@ -99,6 +99,14 @@ Variables are read from the environment (or a `--env-file`):
 | `SEED_DEMO` | `true` | Create the demo tenant/users/rules on startup. Set `false` in production. |
 | `AUTO_CREATE_TABLES` | `true` | Create tables from models on startup. Set `false` when using Alembic. |
 | `ENVIRONMENT` | `development` | Informational environment label. |
+| `ERP_ADAPTER` | `stub` | ERP adapter: `stub`, `file`, or `rest`. |
+| `ERP_FILE_PATH` | — | JSON/CSV ERP snapshot for the `file` adapter. |
+| `ERP_BASE_URL` | — | Base URL for the `rest` adapter. |
+| `ERP_LOOKUP_PATH` | `/items/{code}` | REST lookup path; `{code}` is URL-encoded. |
+| `ERP_API_KEY` | — | Optional secret sent to the ERP. |
+| `ERP_API_KEY_HEADER` | `Authorization` | Header used for `ERP_API_KEY`. |
+| `ERP_API_KEY_PREFIX` | `Bearer ` | Prefix added before `ERP_API_KEY`; set empty for raw keys. |
+| `ERP_TIMEOUT_SECONDS` | `10` | REST request timeout. |
 
 `.env.example` is a template; `.env` and database files are git-ignored.
 
@@ -185,7 +193,8 @@ All endpoints are under `/api`. Human endpoints use `Authorization: Bearer <toke
 | `POST` | `/integrations/pdm/reserve` | API key | Reserve a code with `source=pdm`. |
 | `GET` | `/integrations/pdm/lookup?code=…` | API key | Code lookup. |
 | `GET` | `/integrations/pdm/validate?code=…` | API key | Alias of lookup. |
-| `GET` | `/integrations/erp/lookup?code=…` | API key | ERP adapter stub. |
+| `GET` | `/integrations/erp/lookup?code=…` | API key | Look up a code in the configured ERP adapter. |
+| `POST` | `/integrations/erp/reconcile` | API key | Compare items with ERP and commit matched reservations. |
 
 ### Example: generate a code
 
@@ -233,6 +242,32 @@ curl -s -X PATCH http://127.0.0.1:8000/api/items/<item_id> \
 
 PDM remains the automatic write-back path, but linking no longer requires the add-in. An external reference is unique across active items; void the old item before reusing its reference.
 
+## ERP adapters
+
+Set `ERP_ADAPTER` to choose a read-only lookup source:
+
+- `stub` (default) — always reports "not found"; useful when ERP integration is not configured.
+- `file` — reads a JSON or CSV snapshot from `ERP_FILE_PATH`. JSON can be a list of objects, an object with an `items` list, or a mapping of code to object. CSV needs a `code` column; `id`/`external_id`, `status`, and `description` are optional.
+- `rest` — calls `ERP_BASE_URL + ERP_LOOKUP_PATH` with `GET`. A `404` means not found; a JSON object may contain `code`, `id`/`external_id`, `status`, `description`, or `{"found": false}`. Other HTTP or transport failures return `502`.
+
+The lookup is exposed to API-key clients:
+
+```bash
+curl -s "http://127.0.0.1:8000/api/integrations/erp/lookup?code=PRT-MEC-00001" \
+  -H "X-API-Key: pk_live_…"
+```
+
+Reconciliation checks non-void PartCode items against ERP. A `reserved` item found in ERP becomes `committed`; missing items are reported but not downgraded. Use `dry_run` to preview, and `codes` to limit the run (maximum 200 items per run):
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/integrations/erp/reconcile \
+  -H "X-API-Key: pk_live_…" \
+  -H 'Content-Type: application/json' \
+  -d '{"dry_run": true, "limit": 100}'
+```
+
+Each status change writes an `item.committed` audit event. ERP is authoritative: PartCode never overwrites ERP data, and `propose_item` is not exposed as a write endpoint in this version.
+
 ## Development
 
 ```bash
@@ -262,6 +297,7 @@ backend/app/
 ├── deps.py            auth dependencies and role checks
 ├── seed.py            demo tenant and rules
 ├── services/          rule versioning, generator, audit, errors
+├── services/erp/      stub/file/REST adapters and reconciliation
 └── api/               auth, rules, generation, items, admin, integrations
 ```
 
@@ -309,7 +345,7 @@ See `sandbox/README.md` for the no-Windows connector test.
 - Schema changes are managed by Alembic. Keep `AUTO_CREATE_TABLES=false` in production and run `alembic upgrade head` before starting the app.
 - Docker Compose runs the migration automatically. The `Dockerfile` serves the built SPA from the same origin as the API.
 - API keys are stored as SHA-256 hashes and shown once. Rotate keys by creating a new one and revoking the old one.
-- The ERP endpoint is a stub; replace it with an adapter for the customer's ERP and keep the response contract.
+- ERP integration is read-only lookup/reconciliation. Validate the adapter against the customer's ERP contract before using `rest`; the `file` adapter needs a readable snapshot mounted into the container.
 
 ## License
 

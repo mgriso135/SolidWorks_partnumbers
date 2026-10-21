@@ -20,6 +20,14 @@ class Settings:
     seed_demo: bool
     auto_create_tables: bool
     environment: str
+    erp_adapter: str = "stub"
+    erp_base_url: str | None = None
+    erp_api_key: str | None = None
+    erp_api_key_header: str = "Authorization"
+    erp_api_key_prefix: str = "Bearer "
+    erp_lookup_path: str = "/items/{code}"
+    erp_file_path: str | None = None
+    erp_timeout_seconds: float = 10.0
 
 
 def _load_settings() -> Settings:
@@ -36,6 +44,14 @@ def _load_settings() -> Settings:
         seed_demo=_as_bool(os.getenv("SEED_DEMO"), True),
         auto_create_tables=_as_bool(os.getenv("AUTO_CREATE_TABLES"), True),
         environment=os.getenv("ENVIRONMENT", "development"),
+        erp_adapter=os.getenv("ERP_ADAPTER", "stub"),
+        erp_base_url=os.getenv("ERP_BASE_URL") or None,
+        erp_api_key=os.getenv("ERP_API_KEY") or None,
+        erp_api_key_header=os.getenv("ERP_API_KEY_HEADER", "Authorization"),
+        erp_api_key_prefix=os.getenv("ERP_API_KEY_PREFIX", "Bearer "),
+        erp_lookup_path=os.getenv("ERP_LOOKUP_PATH", "/items/{code}"),
+        erp_file_path=os.getenv("ERP_FILE_PATH") or None,
+        erp_timeout_seconds=float(os.getenv("ERP_TIMEOUT_SECONDS", "10")),
     )
 
 

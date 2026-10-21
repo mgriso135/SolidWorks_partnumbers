@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,9 @@ from ..db import get_db
 from ..deps import get_api_key
 from ..models import ApiKey, Item
 from ..schemas import (
+    ErpLookupOut,
+    ErpReconcileOut,
+    ErpReconcileRequest,
     GenerateOut,
     GenerateRequest,
     ItemOut,
@@ -16,6 +19,13 @@ from ..schemas import (
 )
 from ..services import audit, generator
 from ..services import rules as rule_service
+from ..services.erp import (
+    ErpAdapter,
+    ErpAdapterError,
+    ErpConfigurationError,
+    build_erp_adapter,
+    reconcile_items,
+)
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -124,15 +134,90 @@ def pdm_validate(
     return pdm_lookup(code=code, db=db, api_key=api_key)
 
 
-@router.get("/erp/lookup")
+def get_erp_adapter() -> ErpAdapter:
+    """Indirection kept here so tests can replace the configured adapter."""
+    return build_erp_adapter()
+
+
+def _erp_configuration_error(exc: ErpConfigurationError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "code": "ERP_NOT_CONFIGURED",
+            "message": str(exc),
+            "fields": {},
+        },
+    )
+
+
+@router.get("/erp/lookup", response_model=ErpLookupOut)
 def erp_lookup(
     code: str,
     api_key: ApiKey = Depends(get_api_key),
-) -> dict[str, object]:
-    """Stub ERP adapter. Production deployments replace this with a real adapter."""
-    return {
-        "found": False,
-        "code": code,
-        "adapter": "stub",
-        "message": "No ERP adapter configured",
-    }
+) -> ErpLookupOut:
+    """Look up a code in the configured ERP adapter."""
+    code = code.strip()
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "INVALID_INPUT",
+                "message": "code is required",
+                "fields": {"code": "This field is required"},
+            },
+        )
+    try:
+        adapter = get_erp_adapter()
+        item = adapter.lookup(code)
+    except ErpConfigurationError as exc:
+        raise _erp_configuration_error(exc) from exc
+    except ErpAdapterError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "ERP_UNAVAILABLE",
+                "message": str(exc),
+                "fields": {},
+            },
+        ) from exc
+
+    if item is None:
+        return ErpLookupOut(
+            found=False,
+            code=code,
+            adapter=adapter.name,
+            message=(
+                "Stub ERP adapter has no data" if adapter.name == "stub" else "Not found in ERP"
+            ),
+        )
+    return ErpLookupOut(
+        found=True,
+        code=item.code,
+        adapter=adapter.name,
+        external_id=item.external_id,
+        status=item.status,
+        description=item.description,
+    )
+
+
+@router.post("/erp/reconcile", response_model=ErpReconcileOut)
+def erp_reconcile(
+    payload: ErpReconcileRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    api_key: ApiKey = Depends(get_api_key),
+) -> ErpReconcileOut:
+    """Compare PartCode items with ERP and mark matched reserved items committed."""
+    try:
+        adapter = get_erp_adapter()
+        return reconcile_items(
+            db,
+            tenant_id=api_key.tenant_id,
+            adapter=adapter,
+            request=payload,
+            actor_id=api_key.id,
+            actor_type="api_key",
+            ip=request.client.host if request.client else None,
+        )
+    except ErpConfigurationError as exc:
+        raise _erp_configuration_error(exc) from exc
